@@ -1,0 +1,5 @@
+torch>=2.1
+spacy>=3.7
+numpy
+# python -m spacy download en_core_web_sm
+# optional: transformers (HFNLI / T5 realizer), sentence-transformers (clinical encoder), pytest
