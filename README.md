@@ -67,6 +67,33 @@ OpenAI-compatible server (`tests/fake_llm.py`, canned answers) - not against a r
 Expect real small models to sometimes ignore instructions or add words; the sanitiser and verifier are there for that, but
 their hit rate on real model output is unmeasured.
 
+## Model fixes (audit items A1, A2, B1-B5, C1-C4, D3, E1-wiring)
+All of this is about the *model*; nothing here depends on a dataset. Numbers below are from the synthetic template corpus, which only
+checks the machinery (templates favour greedy), so they are not scientific evidence.
+
+| Item | What changed | Where |
+|---|---|---|
+| A1 Sim | `ContentEncoder`: length-invariant, source-anchored weighted F-measure over content tokens (recall weighted 4x), concept-normalised, numbers / units / negations / hedges / conditionals / drug names carry 3x weight and multiply the score by their recall and precision. Faithful rewrite 1.00 (old 0.84), appended explanation 0.99 (old 0.76), dropped dose 0.55, dropped negation 0.76, swapped drug 0.62. Still offline: it cannot know a layman synonym outside the lexicon; for that, use an embedding/NLI model at evaluation time. | `scoring.py` |
+| A2 / B2 S | `BandSuitabilityScorer`: smooth Gaussian bands around a target (grade 6.5 default; strict above, tolerant below because critical terms are masked to 1 syllable; polysyllable share and jargon penalised only when too high). No clipped plateau, so late-stage ordering keeps a gradient; over-simplified fragments are penalised. `.fit(reference_texts)` anchors the bands to any reference distribution; `to_dict/from_dict` persist them. Saturation (S >= 0.95) on invoke-all outputs: 19% vs 45% for the old scorer. | `scoring.py` |
+| B1 | `gamma` 0.01 -> 0.03 (about 25% of the median edit gain, tested to stay in 10-60%). | `env.py`, `pilot.py` |
+| B3 | Coverage bonus is off everywhere; trainer defaults to 0. | `env.py`, `train_policy.py` |
+| B4 | `train_policy.py --realizer llm` trains against the SAME rules-first LLM realizer (persistent cache, reject penalty 0.25). Every checkpoint writes `<ckpt>.meta.json`; `SIPGRL(checkpoint=...)` warns on legacy checkpoints and on train/deploy mismatches (policy trained with rules, deployed with LLM = inference-time augmentation). | `scripts/train_policy.py`, `pipeline.py` |
+| B5 | `--seeds 0,1,2,3,4`: per-seed checkpoints, mean +- std and a t-interval across seeds. | `scripts/train_policy.py` |
+| C1 / C3 | `RoutedRealizer`: rules always first; the LLM only gets span-local lexical rewrites (long words, nominalizations, jargon adjective+noun) the rules left untouched, behind `lexical_guard` (no sentence punctuation, no new numbers, length cap). Embedded clauses (CCOMP/ACL) reach the LLM only with `allow_llm_structure=True`. Prompt now says "replace only this span, do not restructure". | `realize.py`, `llm.py` |
+| C2 | Lexicon 70 -> 127 reviewed plain-wording pairs. | `lexicon.py` |
+| C4 | Root cause was routing, not coverage: "hypertensive urgency" already had a rule, but the old LLM-first realizer sent it to the LLM, which returned it unchanged, so the rule never ran. Test: `test_lexicon_terms_never_reach_the_llm_c4`. | `realize.py` |
+| D3 | `lexicon_entry_problem` / `assert_lexicon_safe` run at import and must be called by any lexicon miner: no drug names, numbers, percentages, dose units or code-like tokens in keys or replacements. | `lexicon.py` |
+| E1 wiring | The final fallback (output := source) was structurally unreachable: the per-edit gate and the final gate ran the same lexical check, and NLI only ran on sentences with a number or drug term. Now `nli_scope="all"` checks every sentence, final rejections are reported (`final_rejected`), and `adversarial.selftest` injects 6 corruption types and counts where each is stopped (edit gate / final gate / leaked). With NLI off, semantic drift leaks 100%; with an NLI model the final fallback fires. | `verifier.py`, `adversarial.py`, `pipeline.py` |
+| F1 (model side) | Graphs now record `n_dropped` (nodes lost to the 24-node cap; clauses come first, so TERM nodes are what get truncated). | `graph.py` |
+| F3 | The LLM cache works (key = prompt + span + full sentence, so a single pass over distinct sentences cannot hit it; running `llm` then `llm_all` does). New persistent `cache_path` reuses calls across runs and seeds. | `llm.py` |
+
+Synthetic 5-seed result with the corrected reward (200 PPO iterations, `runs/v2_long.log`): PPO dR +0.4194 +- 0.0046; PPO - greedy
+-0.0052 (95% CI [-0.0109, +0.0005]); edits PPO - greedy -0.125 ([-0.206, -0.044]); S PPO - greedy -0.009 ([-0.015, -0.003]); verifier
+preservation 100%. So PPO is slightly more parsimonious and slightly less readable than greedy and still not distinguishable on reward:
+gamma now makes the trade visible, but there is no demonstrated win over greedy. `sipg_policy_v2.pt` is seed 0 (declared in advance, not picked).
+Checkpoints from before this change (`sipg_policy*.pt` without `.meta.json`) were trained under the old reward and will warn.
+Tests: `tests/test_reward_fixes.py`, `test_routing.py`, `test_lexicon_safety.py`, `test_adversarial.py`, `test_meta_warnings.py`.
+
 ## Medical-term info boxes
 In the dashboard, body parts, medicines, conditions, drug classes and dosing abbreviations in the result are underlined; hover, focus
 or click one to open an info box (what it is, one useful general fact, a safety tip for medicines). A **Medical terms in this text** list

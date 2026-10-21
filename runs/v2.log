@@ -1,0 +1,80 @@
+450 graphs | train 301 test 149 | mean nodes 4.5 | dropped-by-24-cap: 0 sentences | realizer=rules gamma=0.03 bonus=0.0
+it   1 | dR +0.0080 | S 0.410 | sim 1.000 | inv 0.6 mv 1.6 rej 0.00 | ent 1.41 | 0s
+it   5 | dR +0.0672 | S 0.428 | sim 1.000 | inv 1.0 mv 4.4 rej 0.00 | ent 1.25 | 1s
+it  10 | dR +0.2412 | S 0.661 | sim 1.000 | inv 2.7 mv 9.6 rej 0.00 | ent 0.90 | 4s
+it  15 | dR +0.3541 | S 0.842 | sim 0.998 | inv 3.2 mv 8.9 rej 0.00 | ent 0.69 | 8s
+it  20 | dR +0.4079 | S 0.877 | sim 0.998 | inv 3.1 mv 7.5 rej 0.00 | ent 0.65 | 12s
+it  25 | dR +0.3903 | S 0.850 | sim 1.000 | inv 3.2 mv 5.9 rej 0.00 | ent 0.53 | 15s
+it  30 | dR +0.3894 | S 0.877 | sim 0.999 | inv 2.7 mv 5.4 rej 0.00 | ent 0.47 | 17s
+it  35 | dR +0.4144 | S 0.904 | sim 1.000 | inv 2.4 mv 4.7 rej 0.00 | ent 0.45 | 20s
+it  40 | dR +0.4000 | S 0.833 | sim 1.000 | inv 2.5 mv 4.5 rej 0.00 | ent 0.46 | 22s
+it  45 | dR +0.4201 | S 0.874 | sim 1.000 | inv 2.7 mv 5.1 rej 0.00 | ent 0.43 | 24s
+it  50 | dR +0.3582 | S 0.848 | sim 0.995 | inv 2.8 mv 4.4 rej 0.00 | ent 0.39 | 27s
+it  55 | dR +0.4108 | S 0.837 | sim 1.000 | inv 3.0 mv 5.8 rej 0.00 | ent 0.48 | 29s
+it  60 | dR +0.4776 | S 0.896 | sim 1.000 | inv 2.9 mv 5.2 rej 0.00 | ent 0.39 | 31s
+seed 0: dR +0.414 (greedy +0.426, random +0.019) S 0.887 sim 1.000 edits 2.62 (greedy 2.85) preserved 100%  [34s]
+it   1 | dR +0.0155 | S 0.446 | sim 1.000 | inv 0.7 mv 2.3 rej 0.00 | ent 1.44 | 0s
+it   5 | dR +0.0342 | S 0.445 | sim 1.000 | inv 1.0 mv 4.2 rej 0.00 | ent 1.38 | 1s
+it  10 | dR +0.1770 | S 0.624 | sim 0.998 | inv 2.2 mv 5.5 rej 0.00 | ent 1.00 | 3s
+it  15 | dR +0.3046 | S 0.838 | sim 0.994 | inv 3.2 mv 8.7 rej 0.00 | ent 0.79 | 6s
+it  20 | dR +0.3393 | S 0.836 | sim 0.997 | inv 3.0 mv 8.1 rej 0.00 | ent 0.72 | 10s
+it  25 | dR +0.3395 | S 0.834 | sim 0.998 | inv 2.5 mv 6.3 rej 0.00 | ent 0.70 | 12s
+it  30 | dR +0.3908 | S 0.871 | sim 1.000 | inv 2.6 mv 5.8 rej 0.00 | ent 0.62 | 15s
+it  35 | dR +0.4571 | S 0.884 | sim 1.000 | inv 2.7 mv 6.0 rej 0.00 | ent 0.55 | 18s
+it  40 | dR +0.4045 | S 0.903 | sim 1.000 | inv 2.6 mv 4.5 rej 0.00 | ent 0.40 | 21s
+it  45 | dR +0.3839 | S 0.854 | sim 1.000 | inv 2.4 mv 6.2 rej 0.00 | ent 0.52 | 23s
+it  50 | dR +0.4184 | S 0.921 | sim 1.000 | inv 2.7 mv 5.1 rej 0.00 | ent 0.47 | 28s
+it  55 | dR +0.4525 | S 0.860 | sim 0.994 | inv 2.9 mv 5.8 rej 0.00 | ent 0.45 | 33s
+it  60 | dR +0.3984 | S 0.844 | sim 1.000 | inv 2.5 mv 7.0 rej 0.00 | ent 0.46 | 38s
+seed 1: dR +0.371 (greedy +0.426, random +0.007) S 0.842 sim 1.000 edits 2.42 (greedy 2.85) preserved 100%  [40s]
+it   1 | dR -0.0158 | S 0.398 | sim 0.999 | inv 0.5 mv 2.4 rej 0.00 | ent 1.46 | 0s
+it   5 | dR +0.0326 | S 0.485 | sim 1.000 | inv 0.9 mv 5.5 rej 0.00 | ent 1.39 | 1s
+it  10 | dR +0.2116 | S 0.725 | sim 0.997 | inv 2.5 mv 8.6 rej 0.00 | ent 0.91 | 4s
+it  15 | dR +0.2923 | S 0.776 | sim 0.998 | inv 2.6 mv 8.5 rej 0.00 | ent 0.75 | 7s
+it  20 | dR +0.3128 | S 0.829 | sim 1.000 | inv 2.2 mv 6.2 rej 0.00 | ent 0.67 | 10s
+it  25 | dR +0.4102 | S 0.837 | sim 1.000 | inv 2.8 mv 7.0 rej 0.00 | ent 0.71 | 13s
+it  30 | dR +0.3576 | S 0.782 | sim 0.999 | inv 2.0 mv 4.9 rej 0.00 | ent 0.57 | 16s
+it  35 | dR +0.4256 | S 0.867 | sim 1.000 | inv 2.8 mv 5.6 rej 0.00 | ent 0.47 | 19s
+it  40 | dR +0.4388 | S 0.879 | sim 0.998 | inv 2.8 mv 5.0 rej 0.00 | ent 0.38 | 24s
+it  45 | dR +0.4159 | S 0.851 | sim 1.000 | inv 2.9 mv 5.7 rej 0.00 | ent 0.40 | 29s
+it  50 | dR +0.3958 | S 0.880 | sim 1.000 | inv 2.4 mv 3.9 rej 0.00 | ent 0.27 | 33s
+it  55 | dR +0.4715 | S 0.894 | sim 1.000 | inv 2.7 mv 4.7 rej 0.00 | ent 0.30 | 35s
+it  60 | dR +0.3992 | S 0.894 | sim 1.000 | inv 2.7 mv 4.4 rej 0.00 | ent 0.29 | 39s
+seed 2: dR +0.415 (greedy +0.426, random +0.015) S 0.891 sim 1.000 edits 2.74 (greedy 2.85) preserved 100%  [40s]
+it   1 | dR +0.0010 | S 0.437 | sim 0.999 | inv 0.7 mv 3.2 rej 0.00 | ent 1.43 | 0s
+it   5 | dR +0.0038 | S 0.460 | sim 0.999 | inv 0.9 mv 2.5 rej 0.00 | ent 1.39 | 1s
+it  10 | dR +0.1883 | S 0.659 | sim 0.998 | inv 2.8 mv 6.8 rej 0.00 | ent 1.00 | 3s
+it  15 | dR +0.2793 | S 0.801 | sim 0.999 | inv 3.4 mv 7.1 rej 0.00 | ent 0.80 | 6s
+it  20 | dR +0.3359 | S 0.845 | sim 0.998 | inv 3.0 mv 5.5 rej 0.00 | ent 0.66 | 11s
+it  25 | dR +0.3814 | S 0.868 | sim 1.000 | inv 3.2 mv 5.7 rej 0.00 | ent 0.60 | 17s
+it  30 | dR +0.4032 | S 0.845 | sim 1.000 | inv 2.8 mv 4.5 rej 0.00 | ent 0.50 | 22s
+it  35 | dR +0.3581 | S 0.840 | sim 0.997 | inv 2.5 mv 4.8 rej 0.00 | ent 0.52 | 26s
+it  40 | dR +0.3883 | S 0.860 | sim 0.998 | inv 3.0 mv 6.4 rej 0.00 | ent 0.57 | 29s
+it  45 | dR +0.3706 | S 0.912 | sim 1.000 | inv 2.4 mv 4.8 rej 0.00 | ent 0.43 | 32s
+it  50 | dR +0.4219 | S 0.889 | sim 0.998 | inv 2.8 mv 6.5 rej 0.00 | ent 0.56 | 35s
+it  55 | dR +0.3692 | S 0.920 | sim 1.000 | inv 2.1 mv 3.6 rej 0.00 | ent 0.51 | 37s
+it  60 | dR +0.3929 | S 0.825 | sim 0.996 | inv 2.4 mv 4.7 rej 0.00 | ent 0.42 | 40s
+seed 3: dR +0.410 (greedy +0.426, random +0.009) S 0.881 sim 1.000 edits 2.61 (greedy 2.85) preserved 100%  [42s]
+it   1 | dR -0.0125 | S 0.343 | sim 1.000 | inv 0.6 mv 2.4 rej 0.00 | ent 1.41 | 0s
+it   5 | dR +0.0298 | S 0.370 | sim 1.000 | inv 0.6 mv 3.1 rej 0.00 | ent 1.46 | 2s
+it  10 | dR +0.0590 | S 0.509 | sim 0.998 | inv 1.7 mv 4.7 rej 0.00 | ent 1.21 | 3s
+it  15 | dR +0.2489 | S 0.804 | sim 0.994 | inv 3.5 mv 6.8 rej 0.00 | ent 0.82 | 6s
+it  20 | dR +0.3211 | S 0.871 | sim 0.997 | inv 3.5 mv 7.4 rej 0.00 | ent 0.75 | 10s
+it  25 | dR +0.4195 | S 0.844 | sim 0.998 | inv 3.1 mv 6.4 rej 0.00 | ent 0.66 | 13s
+it  30 | dR +0.4462 | S 0.892 | sim 0.996 | inv 3.0 mv 5.6 rej 0.00 | ent 0.54 | 16s
+it  35 | dR +0.3856 | S 0.870 | sim 1.000 | inv 2.7 mv 4.4 rej 0.00 | ent 0.50 | 19s
+it  40 | dR +0.4107 | S 0.877 | sim 0.999 | inv 2.9 mv 5.6 rej 0.00 | ent 0.45 | 22s
+it  45 | dR +0.3898 | S 0.852 | sim 0.998 | inv 2.8 mv 4.8 rej 0.00 | ent 0.37 | 25s
+it  50 | dR +0.4219 | S 0.901 | sim 1.000 | inv 2.6 mv 4.8 rej 0.00 | ent 0.40 | 28s
+it  55 | dR +0.4373 | S 0.902 | sim 1.000 | inv 3.0 mv 4.8 rej 0.00 | ent 0.31 | 31s
+it  60 | dR +0.4339 | S 0.910 | sim 0.998 | inv 2.8 mv 4.5 rej 0.00 | ent 0.36 | 33s
+seed 4: dR +0.410 (greedy +0.426, random +0.019) S 0.885 sim 1.000 edits 2.73 (greedy 2.85) preserved 100%  [35s]
+
+across 5 seeds (mean ± std, 95% t-interval half-width):
+  dR (PPO)             +0.4040 ± 0.0185   [+0.3811, +0.4270]
+  dR PPO - greedy      -0.0217 ± 0.0185   [-0.0447, +0.0013]
+  edits PPO - greedy   -0.2188 ± 0.1292   [-0.3792, -0.0583]
+  S PPO - greedy       -0.0272 ± 0.0201   [-0.0522, -0.0023]
+  Sim                  +1.0000 ± 0.0000   [+1.0000, +1.0000]
+  preserved            +1.0000 ± 0.0000   [+1.0000, +1.0000]
+  -> PPO vs greedy: NOT distinguishable from greedy across seeds

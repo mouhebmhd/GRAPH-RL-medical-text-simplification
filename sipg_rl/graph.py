@@ -79,6 +79,7 @@ class GraphBuilder:
         doc = sent.doc
         toks = [(t.i, t.text, t.whitespace_) for t in sent]
         nodes = self._clauses(sent) + self._terms(sent)
+        n_dropped = max(0, len(nodes) - N_MAX)       # clauses come first, so TERM nodes are what gets truncated
         nodes = nodes[:N_MAX]
         for k, n in enumerate(nodes):
             n.id = k
@@ -92,6 +93,7 @@ class GraphBuilder:
             n.prompt = self.inst.instantiate(n, doc)
         adj = self._edges(nodes, doc)
         g = SentenceGraph(doc, sent.text, toks, nodes, adj, self._static(nodes, doc))
+        g.n_dropped = n_dropped
         return g
 
     # ------------------------------------------------------------------------------------

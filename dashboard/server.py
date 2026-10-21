@@ -11,7 +11,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 from sipg_rl.pipeline import SIPGRL, default_parts  # noqa: E402
 from sipg_rl.llm import OpenAICompatLLM  # noqa: E402
-from sipg_rl.realize import CallableRealizer, RuleRealizer  # noqa: E402
+from sipg_rl.realize import RoutedRealizer, RuleRealizer  # noqa: E402
 from sipg_rl import glossary  # noqa: E402
 
 LOCK = threading.Lock()
@@ -121,14 +121,14 @@ def main():
     ap.add_argument("--llm-model", default=os.environ.get("LLM_MODEL", "qwen2.5:7b-instruct"))
     ap.add_argument("--llm-key", default=os.environ.get("LLM_API_KEY"), help="only for hosted APIs")
     a = ap.parse_args()
-    cands = [a.ckpt] if a.ckpt else [os.path.join(ROOT, f) for f in ("sipg_policy_bonus.pt", "sipg_policy.pt")]
+    cands = [a.ckpt] if a.ckpt else [os.path.join(ROOT, f) for f in ("sipg_policy_v2.pt", "sipg_policy_bonus.pt", "sipg_policy.pt")]
     ckpt = next((c for c in cands if c and os.path.exists(c)), None)
     print("loading spaCy + policy ...", flush=True)
     rules = SIPGRL(checkpoint=ckpt)
     STATE["models"]["rules"], STATE["ckpt"] = rules, (os.path.basename(ckpt) if ckpt else None)
     if not a.no_llm:
         STATE["llm"] = OpenAICompatLLM(a.llm_url, a.llm_model, a.llm_key)
-        parts = default_parts(nlp=rules.parts["nlp"], realizer=CallableRealizer(STATE["llm"], RuleRealizer()))
+        parts = default_parts(nlp=rules.parts["nlp"], realizer=RoutedRealizer(STATE["llm"], RuleRealizer()))
         # same trained policy; sweep because it was trained on the rule rewriter (see README)
         STATE["models"]["llm"] = SIPGRL(parts, policy=rules.policy, sweep=True)
         h = STATE["llm"].health()

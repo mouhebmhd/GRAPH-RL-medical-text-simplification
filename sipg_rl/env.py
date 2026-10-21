@@ -20,10 +20,10 @@ DYN_DIM = 3
 class EnvConfig:
     alpha: float = 1.0          # weight of suitability S(y)
     beta: float = 0.5           # weight of semantic fidelity Sim(y,x)
-    gamma: float = 0.01         # cost per prompt invocation (edit-cost penalty)
+    gamma: float = 0.03         # cost per prompt invocation (B1: ~25% of a typical edit gain so parsimony is testable)
     move_cost: float = 0.0025   # cost per traversal move
     reject_penalty: float = 0.10
-    coverage_bonus: float = 0.0  # optional shaping: bonus for an accepted edit at a node with a non-trivial prompt
+    coverage_bonus: float = 0.0  # B3: OFF by default; it encoded a hand heuristic, fix the base reward instead
     fail_final_penalty: float = 1.0
     max_steps_factor: int = 3
 
@@ -135,6 +135,7 @@ class SimplifyEnv:
                     info = dict(event="edited")
             else:
                 info = dict(event="noop")
+            info["via"] = getattr(self.rz, "last_via", None)
         elif a == STOP:
             self.done = True
             final = self.ver.check(self.src, self.text, use_nli=True)

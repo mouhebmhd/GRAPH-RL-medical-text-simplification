@@ -1,0 +1,2 @@
+[baseline (g=.01)] trained+evaluated in 82s
+[low gamma (.002)] trained+evaluated in 73s

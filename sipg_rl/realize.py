@@ -148,3 +148,80 @@ class CallableRealizer(Realizer):
                 return True
             return False
         return self.fallback.apply(graph, node, st) if self.fallback else False
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Rules-first routing (audit C1/C3/C4).  Division of labour, stated explicitly:
+#   * RULES  : every node they can change (lexicon terms, adjective->clause, clause splits). Deterministic, auditable.
+#   * LLM    : only span-LOCAL lexical replacement for nodes the rules left untouched (unknown long words, nominalizations,
+#              jargon adjective+noun), behind a structural guard. It never splits, merges or restructures a sentence.
+#   * CCOMP/ACL (embedded clauses) go to the LLM only if allow_llm_structure=True (an explicit, labelled opt-in).
+# The old LLM-first CallableRealizer sent lexicon terms (e.g. "hypertensive urgency") to the LLM, so a rule that exists
+# never ran whenever the model returned the term unchanged; that was the C4 failure.
+# ---------------------------------------------------------------------------------------------------------------
+import math
+import re
+from collections import Counter
+
+LEXICAL_LLM_KINDS = ("NOM", "CPLX", "AMOD", "LEX")
+STRUCTURAL_LLM_KINDS = ("CCOMP", "ACL")
+_SENT_PUNCT = re.compile(r"[.!?;:\n]")
+_DIGIT = re.compile(r"\d")
+
+
+def lexical_guard(before: str, after: str) -> bool:
+    """True iff `after` is an acceptable span-local lexical replacement for `before`."""
+    b, a = before.strip(), after.strip()
+    if not a or a == b:
+        return False
+    if _SENT_PUNCT.search(a) and not _SENT_PUNCT.search(b):      # would introduce a sentence boundary / list
+        return False
+    if _DIGIT.search(a) and not _DIGIT.search(b):                # no new numbers
+        return False
+    nb, na = len(b.split()), len(a.split())
+    if na > max(3, math.ceil(2.5 * nb) + 1):                       # explanation or restructuring, not a replacement
+        return False
+    return True
+
+
+class RoutedRealizer(Realizer):
+    def __init__(self, llm, rules: Realizer | None = None, allow_llm_structure: bool = False):
+        self.llm, self.rules, self.allow_llm_structure = llm, rules or RuleRealizer(), allow_llm_structure
+        try:
+            self._ctx = len(inspect.signature(llm).parameters) >= 3
+        except (TypeError, ValueError):
+            self._ctx = False
+        self.last_via = None
+        self.stats = Counter()
+
+    @property
+    def llm_kinds(self):
+        return LEXICAL_LLM_KINDS + (STRUCTURAL_LLM_KINDS if self.allow_llm_structure else ())
+
+    def handles(self, kind: str) -> bool:
+        return kind in self.llm_kinds
+
+    def _ask(self, prompt, text, st):
+        return self.llm(prompt, text, st.render()) if self._ctx else self.llm(prompt, text)
+
+    def apply(self, graph, node, st):
+        self.last_via = None
+        if self.rules.apply(graph, node, st):
+            self.last_via = "rules"; self.stats["rules"] += 1
+            return True
+        if node.kind not in self.llm_kinds or any(i in st.edited for i in node.ids):
+            return False
+        ids = node.meta.get("np_ids", node.ids) if node.kind == "AMOD" else node.ids
+        if any(i in st.edited or i in st.moved for i in ids):
+            return False
+        before = st.render_ids(ids)
+        new = (self._ask(node.prompt, before, st) or "").strip()
+        if not new or new == before.strip():
+            self.stats["llm_noop"] += 1
+            return False
+        if not lexical_guard(before, new):
+            self.last_via = "llm-guard"; self.stats["llm_guard_rejected"] += 1
+            return False
+        st.replace_span(ids, new)
+        self.last_via = "llm"; self.stats["llm"] += 1
+        return True

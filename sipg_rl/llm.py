@@ -7,10 +7,12 @@ Speaks the OpenAI-compatible /chat/completions protocol, which covers:
 Stdlib only. The LLM never decides *where* to edit (the graph policy does) and never has the last word on safety
 (the verifier does): it only proposes a replacement for one span."""
 from __future__ import annotations
-import json, re, time, urllib.request, urllib.error
+import json, os, re, time, urllib.request, urllib.error
 
 SYSTEM = (
     "You are an editor who simplifies ONE span of a clinical sentence for a patient with low health literacy. "
+    "Replace ONLY the given span with a plain-language equivalent of about the same length. Do NOT restructure the "
+    "sentence, split it, merge it, or add or remove clauses. "
     "Rules: keep the exact meaning. Never change, drop or add numbers, doses, units, drug names, negations "
     "(no, not, denies, without) or hedges (may, possible, if, unless). Use short, everyday words. "
     "If the span is already plain or cannot be simplified safely, return it unchanged. "
@@ -61,11 +63,25 @@ def parse_explanation(raw: str) -> dict:
 
 class OpenAICompatLLM:
     def __init__(self, base_url="http://localhost:11434/v1", model="qwen2.5:3b", api_key=None,
-                 timeout=90, temperature=0.0, max_tokens=80):
+                 timeout=90, temperature=0.0, max_tokens=80, cache_path=None):
         self.base_url, self.model, self.api_key = base_url.rstrip("/"), model, api_key
         self.timeout, self.temperature, self.max_tokens = timeout, temperature, max_tokens
-        self.cache = {}
+        self.cache, self.cache_path = {}, cache_path
+        if cache_path and os.path.exists(cache_path):     # persistent cache: reuse across runs / seeds / --resume
+            for line in open(cache_path, encoding="utf8"):
+                try:
+                    r = json.loads(line)
+                    if r.get("model") == model:
+                        self.cache[tuple(r["key"])] = r["out"]
+                except Exception:
+                    pass
         self.reset_stats()
+
+    def _remember(self, key, out):
+        self.cache[key] = out
+        if self.cache_path:
+            with open(self.cache_path, "a", encoding="utf8") as f:
+                f.write(json.dumps(dict(model=self.model, key=list(key), out=out)) + "\n")
 
     def reset_stats(self):
         self.stats = dict(calls=0, cache_hits=0, errors=0, seconds=0.0, last_error=None)
@@ -112,7 +128,7 @@ class OpenAICompatLLM:
         finally:
             self.stats["calls"] += 1
             self.stats["seconds"] += time.time() - t0
-        self.cache[key] = out
+        self._remember(key, out)
         return out
 
     def explain(self, term: str, context: str = "") -> dict:
@@ -131,5 +147,5 @@ class OpenAICompatLLM:
             self.stats["errors"] += 1
             self.stats["last_error"] = f"{type(e).__name__}: {e}"
             return {}
-        self.cache[key] = out
+        self._remember(key, out)
         return out

@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--corpus", default=None, help="optional JSONL with a 'source' field (Med-EASi etc.)")
     ap.add_argument("--coverage_bonus", type=float, default=0.0)
-    ap.add_argument("--gamma", type=float, default=0.01)
+    ap.add_argument("--gamma", type=float, default=0.03)
     ap.add_argument("--out", default="pilot_report.json")
     ap.add_argument("--ckpt", default="sipg_policy.pt")
     a = ap.parse_args()

@@ -1,0 +1,14 @@
+{
+ "realizer_in_loop": "rules",
+ "llm_model": null,
+ "allow_llm_structure": false,
+ "gamma": 0.03,
+ "coverage_bonus": 0.0,
+ "reject_penalty": 0.1,
+ "scorer": "BandSuitabilityScorer",
+ "encoder": "ContentEncoder",
+ "iters": 200,
+ "episodes": 32,
+ "data": "synthetic",
+ "seed": 4
+}

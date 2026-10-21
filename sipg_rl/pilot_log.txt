@@ -1,0 +1,39 @@
+graphs built: 450 in 1.7s | train 301 test 149 | mean nodes 4.5
+it   1 | dR +0.0106 | S 0.446 | sim 0.983 | inv 0.6 mv 1.6 rej 0.00 | ent 1.41 | 0s
+it   5 | dR +0.0615 | S 0.456 | sim 0.966 | inv 1.2 mv 3.5 rej 0.00 | ent 1.33 | 2s
+it  10 | dR +0.2737 | S 0.732 | sim 0.932 | inv 3.1 mv 8.8 rej 0.00 | ent 0.85 | 5s
+it  15 | dR +0.3089 | S 0.838 | sim 0.861 | inv 3.6 mv 7.3 rej 0.00 | ent 0.74 | 9s
+it  20 | dR +0.3551 | S 0.861 | sim 0.869 | inv 3.6 mv 6.3 rej 0.00 | ent 0.62 | 12s
+it  25 | dR +0.3960 | S 0.858 | sim 0.917 | inv 3.1 mv 7.1 rej 0.00 | ent 0.66 | 16s
+it  30 | dR +0.3811 | S 0.895 | sim 0.922 | inv 3.0 mv 5.6 rej 0.00 | ent 0.54 | 19s
+it  35 | dR +0.3957 | S 0.913 | sim 0.914 | inv 2.8 mv 5.2 rej 0.00 | ent 0.54 | 22s
+it  40 | dR +0.3752 | S 0.853 | sim 0.907 | inv 2.7 mv 4.8 rej 0.00 | ent 0.44 | 25s
+it  45 | dR +0.4136 | S 0.904 | sim 0.900 | inv 3.2 mv 5.1 rej 0.00 | ent 0.41 | 27s
+it  50 | dR +0.3879 | S 0.908 | sim 0.899 | inv 3.3 mv 5.4 rej 0.00 | ent 0.46 | 30s
+it  55 | dR +0.4161 | S 0.881 | sim 0.887 | inv 3.2 mv 5.1 rej 0.00 | ent 0.36 | 33s
+it  60 | dR +0.4574 | S 0.898 | sim 0.916 | inv 3.0 mv 4.7 rej 0.00 | ent 0.30 | 35s
+it  65 | dR +0.3935 | S 0.918 | sim 0.925 | inv 2.7 mv 3.8 rej 0.00 | ent 0.30 | 37s
+it  70 | dR +0.4239 | S 0.920 | sim 0.892 | inv 3.0 mv 5.4 rej 0.00 | ent 0.35 | 40s
+it  75 | dR +0.4206 | S 0.929 | sim 0.906 | inv 2.9 mv 4.5 rej 0.00 | ent 0.28 | 42s
+it  80 | dR +0.4816 | S 0.916 | sim 0.885 | inv 3.7 mv 4.8 rej 0.00 | ent 0.31 | 45s
+it  85 | dR +0.3487 | S 0.878 | sim 0.922 | inv 2.5 mv 3.1 rej 0.00 | ent 0.22 | 47s
+it  90 | dR +0.4618 | S 0.929 | sim 0.906 | inv 3.4 mv 4.6 rej 0.00 | ent 0.25 | 50s
+it  95 | dR +0.4020 | S 0.915 | sim 0.905 | inv 2.7 mv 3.8 rej 0.00 | ent 0.26 | 52s
+it 100 | dR +0.4443 | S 0.922 | sim 0.872 | inv 3.4 mv 4.6 rej 0.00 | ent 0.19 | 54s
+it 105 | dR +0.4034 | S 0.922 | sim 0.880 | inv 2.9 mv 4.0 rej 0.00 | ent 0.22 | 57s
+it 110 | dR +0.4641 | S 0.933 | sim 0.869 | inv 3.4 mv 5.1 rej 0.00 | ent 0.23 | 60s
+it 115 | dR +0.3836 | S 0.895 | sim 0.891 | inv 2.9 mv 4.4 rej 0.00 | ent 0.28 | 62s
+it 120 | dR +0.4327 | S 0.942 | sim 0.899 | inv 3.2 mv 5.2 rej 0.00 | ent 0.27 | 65s
+
+policy                      dR      S    sim   inv    mv   rej preserved
+no-op (source)          +0.000  0.423  1.000   0.0   0.0  0.00    100.0%
+random traversal        +0.022  0.465  0.986   0.7   2.5  0.00    100.0%
+invoke-all              +0.380  0.923  0.870   4.3   4.4  0.00    100.0%
+greedy-readability      +0.402  0.925  0.884   3.0   4.9  0.00    100.0%
+SIPG-RL (PPO)           +0.399  0.906  0.913   2.9   4.7  0.00    100.0%
+
+Kill-criterion check (paired bootstrap on per-sentence R, learned minus baseline):
+  vs random traversal    : diff +0.3767  95% CI [+0.3468, +0.4069]  p~0.000  -> learned policy wins
+  vs greedy-readability  : diff -0.0036  95% CI [-0.0111, +0.0029]  p~0.854  -> NOT distinguishable from / worse than baseline
+
+VERDICT: KILL-CRITERION TRIGGERED on this pilot - learned traversal does not beat both baselines.

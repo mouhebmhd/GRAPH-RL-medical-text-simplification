@@ -17,10 +17,12 @@ class VerifierResult:
 
 
 class FidelityVerifier:
-    def __init__(self, critical_terms=None, approved_subs=None, nli=None, nli_threshold=0.5):
+    def __init__(self, critical_terms=None, approved_subs=None, nli=None, nli_threshold=0.5, nli_scope="all"):
+        """nli_scope: 'all' = entailment-check every sentence the lexical gate accepts (catches drift outside critical
+        spans, e.g. 'excluded' -> 'confirmed'); 'critical' = legacy, only sentences that contain a number or critical term."""
         self.terms = set(critical_terms or CRITICAL_TERMS)
         self.subs = approved_subs if approved_subs is not None else APPROVED_SUBS
-        self.nli, self.nli_threshold = nli, nli_threshold
+        self.nli, self.nli_threshold, self.nli_scope = nli, nli_threshold, nli_scope
 
     # -- span extraction ---------------------------------------------------------------
     @staticmethod
@@ -67,7 +69,7 @@ class FidelityVerifier:
         for term in ot:
             if term in self.terms and term not in st:
                 v.append(f"hallucinated critical term: {term}")
-        if use_nli and self.nli is not None and not v and (st or sn):
+        if use_nli and self.nli is not None and not v and (self.nli_scope == "all" or st or sn):
             p = self.nli(src, out)  # dict with 'entailment' probability
             if p.get("entailment", 1.0) < self.nli_threshold:
                 v.append(f"NLI entailment {p.get('entailment'):.2f} < {self.nli_threshold}")

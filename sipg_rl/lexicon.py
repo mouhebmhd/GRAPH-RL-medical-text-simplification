@@ -77,6 +77,72 @@ PLAIN_TERMS = {
     "po": ("by mouth", "abbr"),
 }
 
+# C2: broader deterministic lexical coverage. Each pair is a widely used plain-language equivalent; a clinician should
+# still review additions (see tests/test_lexicon_safety.py: nothing with a drug name, number, unit or code may enter).
+PLAIN_TERMS.update({
+    "cerebrovascular accident": ("stroke", "term"),
+    "epistaxis": ("nosebleed", "term"),
+    "alopecia": ("hair loss", "term"),
+    "dysphagia": ("trouble swallowing", "term"),
+    "tinnitus": ("ringing in the ears", "term"),
+    "hematuria": ("blood in the urine", "term"),
+    "dysuria": ("painful urination", "term"),
+    "hemoptysis": ("coughing up blood", "term"),
+    "myalgia": ("muscle pain", "term"),
+    "arthralgia": ("joint pain", "term"),
+    "xerostomia": ("dry mouth", "term"),
+    "diaphoresis": ("heavy sweating", "term"),
+    "metastasis": ("spread of cancer to other parts of the body", "term"),
+    "hepatotoxicity": ("liver damage", "term"),
+    "nephrotoxicity": ("kidney damage", "term"),
+    "hyperkalemia": ("high potassium in the blood", "term"),
+    "hypokalemia": ("low potassium in the blood", "term"),
+    "hyponatremia": ("low sodium in the blood", "term"),
+    "hypernatremia": ("high sodium in the blood", "term"),
+    "anemia": ("low red blood cell count", "term"),
+    "thrombocytopenia": ("low platelet count", "term"),
+    "leukocytosis": ("high white blood cell count", "term"),
+    "neutropenia": ("a low number of infection-fighting white blood cells", "term"),
+    "dyslipidemia": ("unhealthy levels of fats such as cholesterol in the blood", "term"),
+    "ischemia": ("reduced blood supply", "term"),
+    "myocardial ischemia": ("reduced blood flow to the heart", "term"),
+    "orthostatic hypotension": ("a drop in blood pressure when standing up", "term"),
+    "peripheral edema": ("swelling in the arms or legs", "term"),
+    "pedal edema": ("swelling of the feet", "term"),
+    "bilateral": ("on both sides", "term"),
+    "bilaterally": ("on both sides", "term"),
+    "unilateral": ("on one side", "term"),
+    "idiopathic": ("of unknown cause", "term"),
+    "asymptomatic": ("without symptoms", "term"),
+    "symptomatic": ("having symptoms", "term"),
+    "prophylaxis": ("prevention", "term"),
+    "prophylactic": ("preventive", "term"),
+    "adverse effects": ("side effects", "term"),
+    "adverse events": ("side effects", "term"),
+    "adverse reactions": ("harmful reactions", "term"),
+    "efficacious": ("effective", "term"),
+    "efficacy": ("how well it works", "term"),
+    "ameliorated": ("improved", "term"),
+    "ameliorate": ("improve", "term"),
+    "exacerbate": ("make worse", "term"),
+    "commence": ("start", "term"),
+    "terminate": ("end", "term"),
+    "ascertain": ("find out", "term"),
+    "concurrently": ("at the same time", "term"),
+    "subsequently": ("later", "term"),
+    "sufficient": ("enough", "term"),
+    "insufficient": ("not enough", "term"),
+    "adequate": ("enough", "term"),
+    "elevated": ("high", "term"),
+    "diminished": ("reduced", "term"),
+    "dermatitis": ("skin inflammation", "term"),
+    "gastritis": ("inflammation of the stomach lining", "term"),
+    "hepatitis": ("inflammation of the liver", "term"),
+    "nephritis": ("inflammation of the kidneys", "term"),
+    "bronchitis": ("inflammation of the airways in the lungs", "term"),
+    "nocturia": ("waking at night to urinate", "term"),
+})
+
 # adjective -> (condition phrase, concept key). Only applied to person nouns (safety).
 ADJ_REL = {
     "hypertensive": ("high blood pressure", "hypertension"),
@@ -118,3 +184,35 @@ COND_CUES = {"if", "unless"}
 HISTORICAL_CUES = {"history", "previous", "previously", "prior", "past", "resolved"}
 OTHER_EXPERIENCER = {"mother", "father", "sister", "brother", "family", "familial", "parent"}
 SCOPE_BREAKERS = {"but", "however", "although", "though", "except", "because", "while"}
+
+
+# ---- D3: lexicon safety gate -------------------------------------------------------------------------------------------
+# Nothing that names a drug, carries a number/unit, or looks like a code may be a replaceable key or a replacement, no
+# matter how often a miner finds it aligned. Run at import and by any lexicon miner before it writes an entry.
+import re as _re
+_UNIT_WORDS = {"mg", "mcg", "g", "kg", "ml", "l", "iu", "unit", "units", "tablet", "tablets", "capsule", "capsules", "mmhg"}
+_CODE_LIKE = _re.compile(r"\d|\b(?:icd|cpt|snomed|loinc|rxnorm|atc)\b|\b[a-z]{1,4}-?\d{2,}\b|%", _re.I)
+
+
+def lexicon_entry_problem(key: str, plain: str, category: str = "term"):
+    """Return a reason string if (key -> plain) must NOT be a replaceable entry, else None."""
+    for side, text in (("key", key), ("replacement", plain)):
+        words = set(_re.findall(r"[a-z]+", text.lower()))
+        if _CODE_LIKE.search(text):
+            return f"{side} contains a number, percentage or code-like token: {text!r}"
+        if words & _UNIT_WORDS:
+            return f"{side} contains a dose unit: {text!r}"
+        if category != "abbr" and words & CRITICAL_TERMS:
+            return f"{side} contains a critical drug term ({sorted(words & CRITICAL_TERMS)}): {text!r}"
+    if category != "abbr" and key.lower() in CRITICAL_TERMS:
+        return f"key is a critical term: {key!r}"
+    return None
+
+
+def assert_lexicon_safe(terms=None):
+    bad = {k: r for k, (p, c) in (terms or PLAIN_TERMS).items() if (r := lexicon_entry_problem(k, p, c))}
+    if bad:
+        raise ValueError(f"unsafe lexicon entries: {bad}")
+
+
+assert_lexicon_safe()

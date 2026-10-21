@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIPG-RL simplification audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --ink:#18212b; --muted:#5c6b7a; --line:#d7dde4; --soft:#f5f7f9;
+  --ins:#0b6e63; --ins-bg:#d9f1ec; --del:#a8261b; --del-bg:#fbe4e1; --accent:#0b6e63; --warn:#9a5b00; --warn-bg:#fff1d6;
+  --k-ROOT:#5b6b7b; --k-RELCL:#7a5cc4; --k-CONJ_CL:#2f7fc1; --k-ADVCL:#1f9d8a; --k-CCOMP:#8a8f3a;
+  --k-ACL:#a1708a; --k-LEX:#c9742a; --k-NOM:#b5503f; --k-AMOD:#c29a12; --k-CPLX:#6e7f4f;
+  --e-contrast:#c2410c; --e-elaboration:#6d5bd0; --e-condition:#0e7490; --e-cause:#b45309; --e-sequence:#64748b;
+  --e-syn_down:#94a3b8; --e-next:#c3ccd6;
+  --t-body:#7a5cc4; --t-medicine:#1d6fb8; --t-class:#2f7fc1; --t-condition:#b85c14; --t-abbr:#5f7a3a; --t-test:#8a6d1a; --t-other:#5c6b7a;
+  --sans:"Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif; --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#10161d; --panel:#18212b; --ink:#e6ebf0; --muted:#97a5b4; --line:#2b3947; --soft:#1d2833;
+    --ins:#58d6c4; --ins-bg:#12423d; --del:#ff9a8e; --del-bg:#4a1f1b; --accent:#58d6c4; --warn:#f2b45a; --warn-bg:#40300f;
+    --k-ROOT:#93a3b3; --k-RELCL:#a58ff0; --k-CONJ_CL:#6db3ee; --k-ADVCL:#4fd1bd; --k-CCOMP:#c3c862;
+    --k-ACL:#d79bbc; --k-LEX:#f0a15a; --k-NOM:#ee8a79; --k-AMOD:#e8c448; --k-CPLX:#a2b57e;
+    --e-contrast:#f08a52; --e-elaboration:#a597f2; --e-condition:#4fb8d1; --e-cause:#e8a24a; --e-sequence:#8fa0b3;
+    --e-syn_down:#5d6e80; --e-next:#34444f;
+    --t-body:#a58ff0; --t-medicine:#6db3ee; --t-class:#7fbdf0; --t-condition:#f0a15a; --t-abbr:#a2b57e; --t-test:#e8c448; --t-other:#97a5b4;}
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;color:var(--ink);font:16px/1.5 var(--sans);background:var(--bg)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding:18px 28px;border-bottom:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font:600 20px/1.2 var(--sans);letter-spacing:.01em}
+header .sub{color:var(--muted);font-size:14px}
+#status{margin-left:auto;font-size:13px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
+#status.warn{color:var(--warn);background:var(--warn-bg);border-color:transparent}
+main{max-width:1240px;margin:0 auto;padding:22px 28px 60px;display:grid;gap:22px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px 22px}
+h2{margin:0 0 12px;font:600 15px/1.3 var(--sans)}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+textarea{width:100%;min-height:92px;resize:vertical;border:1px solid var(--line);border-radius:4px;padding:12px 14px;background:var(--soft);color:var(--ink);font:18px/1.55 var(--serif)}
+select,button{font:500 14px var(--sans);border-radius:4px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 12px}
+button.primary{background:var(--accent);color:#fff;border-color:var(--accent);padding:9px 20px;cursor:pointer}
+@media (prefers-color-scheme:dark){button.primary{color:#0b1a18}}
+button:disabled{opacity:.6;cursor:progress}
+.hint{color:var(--muted);font-size:13px}
+#alert{display:none;border:1px solid var(--del);background:var(--del-bg);color:var(--del);border-radius:4px;padding:10px 14px;font-size:14px}
+.facts{display:flex;flex-wrap:wrap;gap:8px 36px}
+.fact{display:flex;flex-direction:column}
+.fact b{font:600 20px/1.2 var(--sans)} .fact span{color:var(--muted);font-size:13px}
+.fact b.ok{color:var(--ins)} .fact b.bad{color:var(--del)}
+.cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:22px}
+@media (max-width:900px){.cols{grid-template-columns:1fr} main{padding:16px} header{padding:14px 16px}}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-bottom:12px}
+.tabs button{border:0;border-radius:0;background:transparent;padding:6px 14px}
+.tabs button[aria-selected=true]{background:var(--ink);color:var(--panel)}
+.doc{font:19px/1.75 var(--serif)}
+.doc p{margin:0 0 14px}
+ins{background:var(--ins-bg);color:var(--ins);text-decoration:none;border-bottom:2px solid var(--ins);padding:0 1px}
+del{background:var(--del-bg);color:var(--del);text-decoration:line-through;padding:0 1px}
+.same{color:inherit}
+.dim .same{color:var(--muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:3px 12px;font-size:13px;background:var(--panel);cursor:pointer;color:var(--ink)}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.kind{display:inline-block;font:600 12px/1 var(--sans);padding:4px 7px;border-radius:3px;color:#fff;background:var(--kc,var(--k-ROOT))}
+@media (prefers-color-scheme:dark){.kind{color:#10161d}}
+.ops{display:grid;gap:10px}
+.op{border:1px solid var(--line);border-left:4px solid var(--kc);border-radius:4px;padding:10px 12px;background:var(--soft);cursor:pointer}
+.op[aria-current=true]{outline:2px solid var(--accent);background:var(--panel)}
+.op .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.op .label{font-weight:600}
+.op .meta{margin-left:auto;color:var(--muted);font-size:13px}
+.op .span{font:15px/1.5 var(--serif);margin-top:6px;color:var(--muted)}
+.op .mini{font:16px/1.6 var(--serif);margin-top:6px}
+details{margin-top:8px} summary{cursor:pointer;color:var(--muted);font-size:13px}
+.prompt{font-size:13px;color:var(--muted);margin:6px 0 0;border-left:2px solid var(--line);padding-left:10px}
+.empty{color:var(--muted);padding:8px 0}
+.violation{color:var(--del);font-size:13px}
+svg{display:block;width:100%;height:auto;max-width:100%}
+.gwrap{overflow-x:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);margin-top:10px}
+.legend i{display:inline-block;width:18px;height:0;border-top:3px solid var(--c);vertical-align:middle;margin-right:5px}
+.legend s{display:inline-block;width:11px;height:11px;border-radius:2px;background:var(--c);vertical-align:-1px;margin-right:5px;text-decoration:none}
+.nodeinfo{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500}
+td.num{font-variant-numeric:tabular-nums;text-align:right}
+.pos{color:var(--ins)} .neg{color:var(--del)}
+#intro{color:var(--muted)}
+.copy{float:right}
+/* medical term info boxes */
+.term{--tc:var(--t-other);border-bottom:2px dotted var(--tc);background:color-mix(in srgb,var(--tc) 13%,transparent);border-radius:3px;padding:0 2px;cursor:help}
+.term:hover,.term[aria-expanded=true]{background:color-mix(in srgb,var(--tc) 26%,transparent)}
+.term.guess{border-bottom-style:dashed;background:none}
+.t-body{--tc:var(--t-body)} .t-medicine{--tc:var(--t-medicine)} .t-class{--tc:var(--t-class)} .t-condition{--tc:var(--t-condition)}
+.t-abbr{--tc:var(--t-abbr)} .t-test{--tc:var(--t-test)} .t-other{--tc:var(--t-other)}
+#termlist{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+#termlist h3{margin:0 0 4px;font:600 14px/1.3 var(--sans)}
+#termlist .chips{margin:8px 0 0}
+.tchip{--tc:var(--t-other);border:1px solid var(--tc);border-left-width:4px;border-radius:4px;background:var(--panel);color:var(--ink);padding:3px 10px;font:14px var(--sans);cursor:pointer}
+.tchip:hover{background:color-mix(in srgb,var(--tc) 14%,var(--panel))}
+.tchip.guess{border-style:dashed;border-left-width:4px}
+#tip{position:absolute;z-index:50;width:min(360px,calc(100vw - 16px));background:var(--panel);color:var(--ink);border:1px solid var(--line);border-top:4px solid var(--tc,var(--t-other));border-radius:6px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:12px 14px;font:15px/1.5 var(--sans)}
+#tip[hidden]{display:none}
+#tip .th{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+#tip .th b{font:600 17px/1.2 var(--serif)}
+#tip .tb{font:600 11px/1 var(--sans);color:var(--tc);border:1px solid var(--tc);border-radius:999px;padding:3px 8px}
+#tip .tx{margin-left:auto;border:0;background:transparent;font-size:20px;line-height:1;padding:0 4px;cursor:pointer;color:var(--muted)}
+#tip .td{margin:0 0 6px}
+#tip .te{margin:0 0 8px;color:var(--muted);font-size:14px}
+#tip .ts{margin:8px 0 0;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:6px}
+#tip .ts.ai{color:var(--warn)}
+#tip button.ask{margin-top:4px}
+@media (prefers-reduced-motion:no-preference){ .gnode{transition:opacity .15s} }
+</style>
+</head>
+<body>
+<header>
+  <h1>SIPG-RL simplification audit</h1>
+  <span class="sub">See every edit the policy made, and why</span>
+  <span id="status" role="status">checking model…</span>
+</header>
+
+<main>
+  <section aria-labelledby="in-h">
+    <h2 id="in-h">Clinical text to simplify</h2>
+    <textarea id="input" spellcheck="false" aria-label="Clinical text">The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain.</textarea>
+    <div class="row" style="margin-top:12px">
+      <button id="go" class="primary">Simplify text</button>
+      <label class="hint" for="ex">Try an example</label>
+      <select id="ex" aria-label="Examples"></select>
+      <label class="hint" for="rw">Rewriter</label>
+      <select id="rw" aria-label="Rewriter"><option value="rules">Rules (offline)</option></select>
+      <label class="hint" for="cov">Coverage</label>
+      <select id="cov" aria-label="Coverage"><option value="policy">Policy decides (selective)</option><option value="all">Apply all operations (simplest)</option></select>
+      <label class="hint"><input type="checkbox" id="gl" checked> Explain medical terms</label>
+      <span class="hint">Ctrl+Enter also runs it.</span>
+    </div>
+    <div class="hint" id="rwnote" style="margin-top:8px"></div>
+    <div id="alert" role="alert" style="margin-top:12px"></div>
+  </section>
+
+  <p id="intro">Paste a discharge instruction or report sentence and run it. You will get the simplified text as tracked changes, each operation the policy applied, and the sentence graph it walked.</p>
+
+  <div id="results" hidden>
+    <section aria-label="Summary" style="margin-bottom:22px">
+      <div class="facts" id="facts"></div>
+    </section>
+
+    <div class="cols" style="margin-bottom:22px">
+      <section aria-labelledby="res-h">
+        <h2 id="res-h">Result</h2>
+        <div class="tabs" role="tablist">
+          <button role="tab" id="t-red" aria-selected="true">Tracked changes</button>
+          <button role="tab" id="t-clean" aria-selected="false">Clean text</button>
+        </div>
+        <div id="doc" class="doc"></div>
+        <div id="termlist" hidden></div>
+      </section>
+
+      <section aria-labelledby="ops-h">
+        <h2 id="ops-h">Operations applied</h2>
+        <div class="chips" id="sentchips" role="group" aria-label="Sentence"></div>
+        <div id="ops" class="ops"></div>
+        <div id="otherops"></div>
+        <div id="applyall" style="margin-top:14px"></div>
+      </section>
+    </div>
+
+    <section aria-labelledby="g-h" style="margin-bottom:22px">
+      <h2 id="g-h">Sentence graph and traversal</h2>
+      <div class="hint" style="margin-bottom:8px">Each box is a clause or term found by the parser. Numbered dotted arrows show where the policy moved; a numbered badge marks a prompt it fired. Select a box or an operation for details.</div>
+      <div class="gwrap"><svg id="graph" role="img" aria-label="Sentence graph"></svg></div>
+      <div class="legend" id="legend"></div>
+      <div class="nodeinfo" id="nodeinfo" aria-live="polite">Select a node to see its prompt and what happened there.</div>
+    </section>
+
+    <section aria-labelledby="log-h">
+      <h2 id="log-h">Full traversal log</h2>
+      <details open><summary>Every step the policy took in this sentence</summary>
+        <div style="overflow-x:auto;margin-top:8px"><table id="log"></table></div>
+      </details>
+    </section>
+  </div>
+</main>
+
+<div id="tip" role="dialog" aria-label="Medical term information" hidden></div>
+
+<script>
+const EXAMPLES = [
+  ["The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain.", "Relative clause, jargon adjective, abbreviation"],
+  ["Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment.", "Condition kept, cause split off"],
+  ["Myocardial infarction was ruled out; however, the patient reported cephalalgia and pruritus that persisted for 3 days.", "Several jargon terms"],
+  ["Follow up as directed.", "Already simple: expect no edits"],
+  ["The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain. Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment.", "Two sentences"],
+];
+const EDGE_NAMES = {contrast:"contrast",elaboration:"elaboration",condition:"condition",cause:"cause",sequence:"sequence",syn_down:"syntax link",next:"word order"};
+const KINDS = ["ROOT","RELCL","CONJ_CL","ADVCL","CCOMP","ACL","LEX","NOM","AMOD","CPLX"];
+const KIND_NAMES = {ROOT:"main clause",RELCL:"relative clause",CONJ_CL:"joined clause",ADVCL:"subordinate clause",CCOMP:"complement clause",ACL:"participial modifier",LEX:"medical term",NOM:"nominalization",AMOD:"adjective",CPLX:"long word"};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const kc = k => `var(--k-${k})`;
+
+let HEALTH = null, DATA = null, SEL = 0, MODE = "red", ACTIVE_OP = null, ACTIVE_NODE = null;
+
+/* ---------- medical term info boxes ---------- */
+let TERMS = [], TMAP = {}, RX_CI = null, RX_CS = null, SHOWTERMS = true;
+const rxEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function buildTerms(list){
+  TERMS = list || []; TMAP = {}; const ci = new Set(), cs = new Set();
+  TERMS.forEach((t,i) => (t.surfaces||[]).forEach(f => {
+    if(t.cs){ cs.add(f); TMAP['C:'+f] = i; } else { ci.add(f.toLowerCase()); TMAP['i:'+f.toLowerCase()] = i; }
+  }));
+  const mk = (set, fl) => set.size ? new RegExp('(?<![\\w-])(?:' + [...set].sort((a,b)=>b.length-a.length).map(rxEsc).join('|') + ')(?![\\w-])', fl) : null;
+  RX_CI = mk(ci, 'gi'); RX_CS = mk(cs, 'g');
+}
+function termSpans(str){
+  const sp = [];
+  for(const [rx, pre] of [[RX_CI,'i:'],[RX_CS,'C:']]){
+    if(!rx) continue; rx.lastIndex = 0; let m;
+    while((m = rx.exec(str))){ const k = TMAP[pre + (pre==='i:' ? m[0].toLowerCase() : m[0])]; if(k !== undefined) sp.push([m.index, m.index + m[0].length, k]); }
+  }
+  sp.sort((a,b) => a[0]-b[0] || b[1]-a[1]);
+  const out = []; let end = -1;
+  for(const x of sp) if(x[0] >= end){ out.push(x); end = x[1]; }
+  return out;
+}
+function termHTML(surface, i){
+  const t = TERMS[i];
+  return `<span class="term t-${esc(t.type)}${t.source==='pattern'?' guess':''}" tabindex="0" role="button" aria-haspopup="dialog" aria-expanded="false" data-ti="${i}">${esc(surface)}</span>`;
+}
+function hl(str){
+  if(!SHOWTERMS || !TERMS.length) return esc(str);
+  let o = '', p = 0;
+  for(const [a,b,i] of termSpans(str)){ o += esc(str.slice(p,a)) + termHTML(str.slice(a,b), i); p = b; }
+  return o + esc(str.slice(p));
+}
+function renderTermList(){
+  const el = $('termlist');
+  if(!SHOWTERMS || !TERMS.length){ el.hidden = true; el.innerHTML = ''; return; }
+  const order = ['medicine','class','condition','body','abbr','test','other'];
+  const sorted = TERMS.map((t,i)=>[t,i]).sort((a,b)=>order.indexOf(a[0].type)-order.indexOf(b[0].type) || a[0].title.localeCompare(b[0].title));
+  el.hidden = false;
+  el.innerHTML = `<h3>Medical terms in this text (${TERMS.length})</h3>
+    <div class="hint">Select a word in the text or a term below to see what it means. Dashed underline = looks medical but is not in the built-in glossary.</div>
+    <div class="chips">${sorted.map(([t,i]) => `<button class="tchip t-${esc(t.type)}${t.source==='pattern'?' guess':''}" data-ti="${i}" aria-haspopup="dialog">${esc(t.title)} <span class="hint">· ${esc(t.type_label)}</span></button>`).join('')}</div>`;
+}
+let ANCHOR = null, PINNED = false, hideT = null, showT = null;
+const tip = () => $('tip');
+function tipHTML(i){
+  const t = TERMS[i], has = !!t.definition, llm = HEALTH && HEALTH.llm && HEALTH.llm.reachable && HEALTH.llm.model_available !== false;
+  const body = has ? `<p class="td">${esc(t.definition)}</p>${t.extra ? `<p class="te">${esc(t.extra)}</p>` : ''}`
+    : `<p class="td">${t.asked ? 'The model was not sure what this means. Please ask your clinician or pharmacist.'
+        : t.source==='pattern' ? 'This looks like a medical term, but it is not in the built-in glossary.'
+        : 'This is a medicine name from the clinician list, but the built-in glossary has no text for it.'}</p>
+       ${llm && !t.asked ? `<button class="ask" data-ask="${i}">Explain with AI (${esc(HEALTH.llm.model)})</button>` : (!llm && !t.asked ? '<p class="te">Start Ollama to get an AI explanation.</p>' : '')}`;
+  const src = t.source==='llm' ? `<p class="ts ai">AI-generated by ${esc(t.model||'the local model')}. Not verified: check with your clinician or pharmacist.</p>`
+    : has ? `<p class="ts">Built-in glossary. General information, not medical advice.</p>`
+    : t.source==='pattern' ? `<p class="ts">Detected from the shape of the word only.</p>` : '';
+  return `<div class="th"><b>${esc(t.title)}</b><span class="tb">${esc(t.type_label)}</span><button class="tx" aria-label="Close" data-close>×</button></div>${body}${src}`;
+}
+function openTip(el, pin){
+  clearTimeout(hideT); clearTimeout(showT);
+  if(ANCHOR && ANCHOR !== el) ANCHOR.setAttribute('aria-expanded','false');
+  ANCHOR = el; PINNED = !!pin; const i = +el.dataset.ti, t = TERMS[i], box = tip();
+  el.setAttribute('aria-expanded','true');
+  box.style.setProperty('--tc', `var(--t-${t.type})`);
+  box.innerHTML = tipHTML(i); box.dataset.ti = i; box.hidden = false;
+  const r = el.getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight;
+  let left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+  let top = r.bottom + 8; if(top + h > window.innerHeight - 8 && r.top - h - 8 > 8) top = r.top - h - 8;
+  box.style.left = (left + window.scrollX) + 'px'; box.style.top = (top + window.scrollY) + 'px';
+}
+function closeTip(focusBack){
+  clearTimeout(hideT); clearTimeout(showT);
+  const box = tip(); box.hidden = true;
+  if(ANCHOR){ ANCHOR.setAttribute('aria-expanded','false'); if(focusBack && PINNED) ANCHOR.focus(); }
+  ANCHOR = null; PINNED = false;
+}
+async function askAI(i, btn){
+  const t = TERMS[i]; btn.disabled = true; btn.textContent = 'Asking the model…';
+  const sent = DATA && DATA.sentences.map(s => s.output).find(o => o.toLowerCase().includes((t.surfaces||[t.title])[0].toLowerCase())) || '';
+  try{
+    const r = await fetch('/api/explain', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({term:(t.surfaces||[t.title])[0], context:sent})});
+    const j = await r.json(); if(!r.ok) throw new Error(j.error || r.statusText);
+    Object.assign(t, {definition:j.definition, extra:j.extra, type:j.type||t.type, type_label:j.type_label||t.type_label, source:'llm', model:j.model, asked:true});
+  }catch(e){ t.asked = false; showErr('Could not get an explanation: ' + e.message); }
+  if(ANCHOR && +tip().dataset.ti === i){ const a = ANCHOR; openTip(a, true); }
+  if(!$('termlist').hidden) renderTermList();
+}
+document.addEventListener('mouseover', e => {
+  const t = e.target.closest('.term'), inTip = e.target.closest('#tip');
+  if(inTip) clearTimeout(hideT);
+  else if(t && !PINNED){ clearTimeout(hideT); showT = setTimeout(() => openTip(t, false), 120); }
+});
+document.addEventListener('mouseout', e => {
+  if(e.target.closest('.term, #tip')){ clearTimeout(showT); if(!PINNED) hideT = setTimeout(() => closeTip(false), 250); }
+});
+document.addEventListener('click', e => {
+  const ask = e.target.closest('[data-ask]'); if(ask){ askAI(+ask.dataset.ask, ask); return; }
+  if(e.target.closest('[data-close]')){ closeTip(true); return; }
+  const t = e.target.closest('[data-ti]');
+  if(t && t.id !== 'tip'){ (ANCHOR === t && PINNED) ? closeTip(false) : openTip(t, true); return; }
+  if(!e.target.closest('#tip')) closeTip(false);
+});
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && ANCHOR) closeTip(true);
+  const t = e.target.closest && e.target.closest('.term');
+  if(t && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); openTip(t, true); }
+});
+document.addEventListener('focusin', e => {
+  const t = e.target.closest && e.target.closest('.term');
+  if(t && !PINNED) openTip(t, false);
+  else if(!t && ANCHOR && !PINNED && !(e.target.closest && e.target.closest('#tip'))) closeTip(false);
+});
+window.addEventListener('resize', () => closeTip(false));
+
+/* ---------- word-level diff ---------- */
+const norm = w => w.toLowerCase().replace(/[.,;:]+$/,'');
+const toks = s => s.match(/\S+/g) || [];
+function diff(a, b){
+  const A = toks(a), B = toks(b), n = A.length, m = B.length;
+  const dp = Array.from({length:n+1}, () => new Uint16Array(m+1));
+  for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--)
+    dp[i][j] = norm(A[i])===norm(B[j]) ? dp[i+1][j+1]+1 : Math.max(dp[i+1][j], dp[i][j+1]);
+  const out=[]; let i=0, j=0;
+  while(i<n && j<m){
+    if(norm(A[i])===norm(B[j])){ out.push(['=',B[j]]); i++; j++; }
+    else if(dp[i+1][j] >= dp[i][j+1]) out.push(['-',A[i++]]);
+    else out.push(['+',B[j++]]);
+  }
+  while(i<n) out.push(['-',A[i++]]);
+  while(j<m) out.push(['+',B[j++]]);
+  return out;
+}
+function diffHTML(a, b, dim){
+  const parts=[]; let cur=null;
+  for(const [t,w] of diff(a,b)){
+    if(cur && cur.t===t) cur.w.push(w); else { cur={t,w:[w]}; parts.push(cur); }
+  }
+  const h = parts.map(p => {
+    const raw = p.w.join(' ');
+    return p.t==='+' ? `<ins>${hl(raw)}</ins>` : p.t==='-' ? `<del>${esc(raw)}</del>` : `<span class="same">${hl(raw)}</span>`;
+  }).join(' ');
+  return dim ? `<span class="dim">${h}</span>` : h;
+}
+
+/* ---------- rendering ---------- */
+function renderFacts(){
+  const S = DATA.sentences;
+  const sb = S.reduce((a,s)=>a+s.S_before,0)/S.length, sa = S.reduce((a,s)=>a+s.S_after,0)/S.length;
+  const edits = S.reduce((a,s)=>a+s.operations.length,0);
+  const changed = S.filter(s=>s.output!==s.source).length;
+  const bad = S.filter(s=>!s.verified);
+  const safe = bad.length
+    ? `<b class="bad">${bad.length} reverted</b><span>failed safety check, source kept</span>`
+    : `<b class="ok">All passed</b><span>doses, negations, drug names intact</span>`;
+  $('facts').innerHTML = `
+    <div class="fact"><b>${(sb*100).toFixed(0)}% to ${(sa*100).toFixed(0)}%</b><span>readability suitability</span></div>
+    <div class="fact"><b>${edits}</b><span>edits applied in ${changed} of ${S.length} sentence${S.length>1?'s':''}</span></div>
+    <div class="fact"><b>${S.reduce((a,s)=>a+s.n_moves,0)} moves, ${S.reduce((a,s)=>a+s.n_invokes,0)} prompts fired</b><span>policy traversal</span></div>
+    <div class="fact">${safe}</div>
+    <div class="fact"><b>${DATA.seconds}s</b><span>processing time</span></div>
+    ${DATA.llm_stats ? `<div class="fact"><b>${DATA.llm_stats.calls} calls</b><span>${esc(DATA.llm_stats.model)}${DATA.llm_stats.cache_hits?`, ${DATA.llm_stats.cache_hits} cached`:''}</span></div>` : ''}`;
+  if(DATA.llm_stats && DATA.llm_stats.errors) showErr(`The LLM failed on ${DATA.llm_stats.errors} call(s): ${DATA.llm_stats.last_error}. Those spans were left unchanged.`);
+}
+function renderDoc(){
+  closeTip(false);
+  $('doc').innerHTML = DATA.sentences.map((s,i) => {
+    const body = MODE==='red' ? diffHTML(s.source, s.output) : hl(s.output);
+    const note = s.verified ? '' : `<div class="violation">Reverted to source: ${esc(s.violations.join('; '))}</div>`;
+    return `<p>${body}${note}</p>`;
+  }).join('');
+  if(MODE==='clean'){
+    $('doc').insertAdjacentHTML('beforeend', `<button class="copy" id="copy">Copy text</button>`);
+    $('copy').onclick = () => { navigator.clipboard.writeText(DATA.output); $('copy').textContent='Copied'; };
+  }
+}
+function renderChips(){
+  const S = DATA.sentences;
+  $('sentchips').style.display = S.length>1 ? 'flex' : 'none';
+  $('sentchips').innerHTML = S.map((s,i)=>`<button class="chip" aria-pressed="${i===SEL}" data-i="${i}">Sentence ${i+1}</button>`).join('');
+  $('sentchips').querySelectorAll('button').forEach(b => b.onclick = () => { SEL=+b.dataset.i; ACTIVE_OP=null; ACTIVE_NODE=null; renderSentence(); });
+}
+function opCard(o, kind){
+  const diffh = diffHTML(o.before, o.after);
+  const sign = o.reward>=0 ? 'pos' : 'neg';
+  return `<div class="op" style="--kc:${kc(o.kind)}" data-node="${o.node}" data-step="${o.step}" tabindex="0" role="button" aria-label="${esc(o.label)}">
+    <div class="top"><span class="kind" style="--kc:${kc(o.kind)}">${esc(KIND_NAMES[o.kind]||o.kind)}</span>
+      <span class="label">${esc(o.label)}</span>
+      ${o.via==='llm'?'<span class="kind" style="--kc:var(--accent)">LLM</span>':''}${o.driver==='sweep'?'<span class="kind" style="--kc:var(--muted)">applied at the end</span>':''}
+      <span class="meta">step ${o.step}, reward <span class="${sign}">${o.reward>=0?'+':''}${o.reward.toFixed(3)}</span></span></div>
+    <div class="span">on: “${esc(o.span)}”</div>
+    ${kind==='applied' ? `<div class="mini">${diffh}</div>` : ''}
+    ${(o.violations||[]).map(v=>`<div class="violation">Blocked: ${esc(v)}</div>`).join('')}
+    <details><summary>Prompt used at this node</summary><p class="prompt">${esc(o.prompt)}</p></details>
+  </div>`;
+}
+function renderOps(){
+  const s = DATA.sentences[SEL];
+  $('ops').innerHTML = s.operations.length ? s.operations.map(o=>opCard(o,'applied')).join('')
+    : `<div class="empty">No edits were needed in this sentence. The policy stopped without changing it.</div>`;
+  let extra = '';
+  if(s.skipped.length) extra += `<details><summary>${s.skipped.length} prompt${s.skipped.length>1?'s':''} fired with no effect</summary><div class="ops" style="margin-top:8px">${s.skipped.map(o=>opCard(o,'skipped')).join('')}</div></details>`;
+  if(s.rejected.length) extra += `<details open><summary>${s.rejected.length} edit${s.rejected.length>1?'s':''} blocked by the safety check</summary><div class="ops" style="margin-top:8px">${s.rejected.map(o=>opCard(o,'rejected')).join('')}</div></details>`;
+  $('otherops').innerHTML = extra;
+  document.querySelectorAll('.op').forEach(el => {
+    const act = () => { ACTIVE_OP = +el.dataset.step; ACTIVE_NODE = +el.dataset.node; renderSentence(true); };
+    el.onclick = act; el.onkeydown = e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); act(); } };
+    if(ACTIVE_OP===+el.dataset.step) el.setAttribute('aria-current','true');
+  });
+}
+
+/* ---------- graph ---------- */
+function drawGraph(){
+  const s = DATA.sentences[SEL], g = s.graph, N = g.nodes;
+  const order = [...N].sort((a,b)=>a.anchor-b.anchor||a.id-b.id);
+  const maxD = Math.max(...N.map(n=>n.depth));
+  const BW=128, BH=50, GAP=26, PADX=40;
+  const W = Math.max(760, order.length*(BW+GAP)+PADX*2), H = 70 + (maxD+1)*120;
+  const pos = {};
+  order.forEach((n,i)=>{ pos[n.id] = {x: PADX+BW/2 + i*(BW+GAP) + (W-PADX*2-order.length*(BW+GAP))/2, y: 52+n.depth*120}; });
+  const invoked = {};
+  s.steps.forEach(t => { if(t.action==='INVOKE') invoked[t.at] = t; });
+  let svg = `<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker></defs>`;
+  // structural edges
+  for(const e of g.edges){
+    const a=pos[e.source], b=pos[e.target], my=(a.y+b.y)/2;
+    const dash = e.type==='next' ? 'stroke-dasharray="2 5"' : '';
+    const w = e.type==='next' ? 1.5 : 2.4;
+    const sameLevel = a.y===b.y;
+    const d = sameLevel ? `M${a.x} ${a.y+BH/2} Q${(a.x+b.x)/2} ${a.y+BH/2+ (e.type==='next'?34:26)} ${b.x} ${b.y+BH/2}`
+                        : `M${a.x} ${a.y+BH/2} C${a.x} ${my} ${b.x} ${my} ${b.x} ${b.y-BH/2}`;
+    svg += `<path d="${d}" fill="none" stroke="var(--e-${e.type})" stroke-width="${w}" ${dash}><title>${esc(EDGE_NAMES[e.type]||e.type)}</title></path>`;
+  }
+  // nodes
+  for(const n of N){
+    const p = pos[n.id], t = invoked[n.id];
+    const ev = t ? t.event : '';
+    const ring = ev==='edited' ? `stroke="var(--accent)" stroke-width="3"` : ev==='rejected' ? `stroke="var(--del)" stroke-width="3"` :
+                 t ? `stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3"` : `stroke="var(--k-${n.kind})" stroke-width="1.5"`;
+    const sel = ACTIVE_NODE===n.id ? `<rect x="${p.x-BW/2-5}" y="${p.y-BH/2-5}" width="${BW+10}" height="${BH+10}" rx="9" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 3"/>` : '';
+    const txt = n.text.length>17 ? n.text.slice(0,16)+'…' : n.text;
+    svg += `<g class="gnode" data-id="${n.id}" style="cursor:pointer" tabindex="0" role="button" aria-label="${esc(KIND_NAMES[n.kind])}: ${esc(n.text)}">
+      ${sel}
+      <rect x="${p.x-BW/2}" y="${p.y-BH/2}" width="${BW}" height="${BH}" rx="6" ${ring} style="fill:color-mix(in srgb, var(--k-${n.kind}) 16%, var(--panel))"/>
+      <text x="${p.x}" y="${p.y-5}" text-anchor="middle" font-size="11" font-weight="600" style="fill:var(--k-${n.kind})">${esc(KIND_NAMES[n.kind])}</text>
+      <text x="${p.x}" y="${p.y+13}" text-anchor="middle" font-size="13" style="fill:var(--ink);font-family:var(--serif)">${esc(txt)}</text>
+      ${t ? `<circle cx="${p.x+BW/2-2}" cy="${p.y-BH/2+2}" r="11" style="fill:${ev==='edited'?'var(--accent)':ev==='rejected'?'var(--del)':'var(--muted)'}"/><text x="${p.x+BW/2-2}" y="${p.y-BH/2+6}" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--panel)">${t.step}</text>`:''}
+    </g>`;
+  }
+  // traversal moves
+  s.steps.filter(t=>t.action.startsWith('MOVE')).forEach(t => {
+    const a=pos[t.at], b=pos[t.to]; if(!a||!b) return;
+    const dx=b.x-a.x, dy=b.y-a.y, L=Math.hypot(dx,dy)||1, ox=-dy/L*16, oy=dx/L*16;
+    const x1=a.x+dx*.3+ox, y1=a.y+dy*.3+oy, x2=a.x+dx*.7+ox, y2=a.y+dy*.7+oy;
+    svg += `<path d="M${x1} ${y1} L${x2} ${y2}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round" marker-end="url(#ah)" fill="none"/>
+            <text x="${(x1+x2)/2+ox*.5}" y="${(y1+y2)/2+oy*.5+4}" text-anchor="middle" font-size="11" style="fill:var(--accent);font-weight:600">${t.step}</text>`;
+  });
+  const el = $('graph'); el.setAttribute('viewBox', `0 0 ${W} ${H}`); el.style.minWidth = Math.min(W, 1100)+'px'; el.innerHTML = svg;
+  el.querySelectorAll('.gnode').forEach(gn => {
+    const act = () => { ACTIVE_NODE=+gn.dataset.id; ACTIVE_OP=null; renderSentence(true); };
+    gn.onclick = act; gn.onkeydown = e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); act(); } };
+  });
+}
+function renderLegend(){
+  const used = new Set(DATA.sentences[SEL].graph.nodes.map(n=>n.kind));
+  const ks = KINDS.filter(k=>used.has(k)).map(k=>`<span><s style="--c:var(--k-${k})"></s>${KIND_NAMES[k]}</span>`);
+  const es = [...new Set(DATA.sentences[SEL].graph.edges.map(e=>e.type))].map(t=>`<span><i style="--c:var(--e-${t})"></i>${EDGE_NAMES[t]||t}</span>`);
+  $('legend').innerHTML = ks.join('') + es.join('') +
+    `<span><i style="--c:var(--accent)"></i>edited node</span><span><i style="--c:var(--del)"></i>blocked edit</span>`;
+}
+function renderNodeInfo(){
+  const s = DATA.sentences[SEL];
+  if(ACTIVE_NODE==null){ $('nodeinfo').textContent = 'Select a node to see its prompt and what happened there.'; return; }
+  const n = s.graph.nodes[ACTIVE_NODE];
+  const ctx = n.ctx.length ? `<div>Source context: ${n.ctx.map(esc).join(', ')}</div>` : '';
+  const hist = s.steps.filter(t=>t.at===n.id && t.action==='INVOKE');
+  const outcome = hist.length ? hist.map(t=>`step ${t.step}: ${esc(t.event==='edited'?'edit applied':t.event==='noop'?'prompt had no effect':t.event==='rejected'?'blocked by safety check':t.event)}`).join('; ')
+                              : 'The policy never fired a prompt here.';
+  $('nodeinfo').innerHTML = `<div><span class="kind" style="--kc:${kc(n.kind)}">${esc(KIND_NAMES[n.kind])}</span> <b style="font-family:var(--serif);font-size:17px">“${esc(n.text)}”</b></div>
+    ${n.relation?`<div>Relation to its parent: ${esc(n.relation)}</div>`:''}${ctx}
+    <div>${outcome}</div><p class="prompt">${esc(n.prompt)}</p>`;
+}
+function renderLog(){
+  const s = DATA.sentences[SEL], nm = id => { const n=s.graph.nodes[id]; return n ? `${n.id} ${KIND_NAMES[n.kind]}` : id; };
+  const evName = {edited:'edit applied',noop:'no effect',rejected:'blocked'};
+  $('log').innerHTML = `<tr><th>Step</th><th>At node</th><th>Action</th><th>Outcome</th><th>Chosen by</th><th class="num">Reward</th><th class="num">Running total</th></tr>` +
+    s.steps.map(t => {
+      const act = t.action==='INVOKE' ? 'Fire prompt' : t.action==='STOP' ? 'Stop' : `Move to ${esc(nm(t.to))}`;
+      const out = t.action==='INVOKE' ? (evName[t.event]||t.event) : t.action==='STOP' ? (t.event==='final_reject'?'reverted by final check':'finished') : '';
+      return `<tr><td>${t.step}</td><td>${esc(nm(t.at))}</td><td>${act}</td><td>${esc(out)}</td><td>${t.driver==='sweep'?'end sweep':'policy'}</td>
+        <td class="num ${t.reward>=0?'pos':'neg'}">${t.reward>=0?'+':''}${t.reward.toFixed(3)}</td><td class="num">${t.ret.toFixed(3)}</td></tr>`;
+    }).join('');
+}
+function renderApplyAll(){
+  const box = $('applyall');
+  if(DATA.apply_all){ box.innerHTML = '<div class="hint">Every operation in the graph was applied, so this is the simplest version the system can produce. Each edit still had to pass the safety check.</div>'; return; }
+  box.innerHTML = '<button id="applyallbtn" class="primary">Apply all remaining operations</button><div class="hint" style="margin-top:6px">Fires every prompt the policy left unused, then re-checks safety. Usually simpler, sometimes drifts further from the original wording.</div>';
+  $('applyallbtn').onclick = () => { $('cov').value = 'all'; run(); };
+}
+function renderSentence(keepScroll){
+  renderChips(); renderOps(); drawGraph(); renderLegend(); renderNodeInfo(); renderLog();
+}
+function renderAll(){
+  $('results').hidden = false; $('intro').style.display='none';
+  renderFacts(); renderDoc(); renderTermList(); renderSentence(); renderApplyAll();
+}
+
+/* ---------- wiring ---------- */
+async function run(){
+  const text = $('input').value.trim();
+  $('alert').style.display='none';
+  if(!text){ showErr('Enter some clinical text first.'); return; }
+  $('go').disabled = true; $('go').textContent = 'Simplifying…';
+  try{
+    const r = await fetch('/api/simplify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, rewriter: $('rw').value, apply_all: $('cov').value==='all'})});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || r.statusText);
+    DATA = j; SEL = 0; ACTIVE_OP = ACTIVE_NODE = null; buildTerms(j.terms); renderAll();
+  }catch(e){
+    showErr(`${e.message}. Check that the server is running: python dashboard/server.py`);
+  }finally{
+    $('go').disabled = false; $('go').textContent = 'Simplify text';
+  }
+}
+function showErr(m){ const a=$('alert'); a.textContent=m; a.style.display='block'; }
+function setMode(m){
+  MODE=m; $('t-red').setAttribute('aria-selected', m==='red'); $('t-clean').setAttribute('aria-selected', m==='clean');
+  if(DATA) renderDoc();
+}
+$('ex').innerHTML = EXAMPLES.map((e,i)=>`<option value="${i}">${esc(e[1])}</option>`).join('');
+$('ex').onchange = () => { $('input').value = EXAMPLES[$('ex').value][0]; run(); };
+$('go').onclick = run;
+$('input').addEventListener('keydown', e => { if(e.key==='Enter' && (e.ctrlKey||e.metaKey)) run(); });
+$('gl').onchange = () => { SHOWTERMS = $('gl').checked; if(DATA){ renderDoc(); renderTermList(); } };
+$('t-red').onclick = () => setMode('red'); $('t-clean').onclick = () => setMode('clean');
+function setupRewriter(h){
+  HEALTH = h; const l = h.llm || {configured:false}, rw = $('rw'), note = $('rwnote');
+  if(!l.configured){ note.textContent=''; return; }
+  const ok = l.reachable && l.model_available !== false;
+  rw.innerHTML = `<option value="rules">Rules (offline)</option><option value="llm" ${ok?'':'disabled'}>LLM: ${esc(l.model)}${ok?'':' (unavailable)'}</option>`;
+  if(ok){ rw.value='llm'; note.textContent = 'LLM mode rewrites individual terms with the model; the policy still decides where, and the safety check can still block any edit. Skipped term nodes are also tried (the policy was trained on the rule rewriter).'; }
+  else note.textContent = !l.reachable ? `LLM not reachable at ${l.base_url}. Start Ollama (ollama serve) and pull the model: ollama pull ${l.model}, then reload.`
+                                       : `Model ${l.model} is not on the server. Run: ollama pull ${l.model}, then reload.`;
+}
+fetch('/api/health').then(r=>r.json()).then(h=>{
+  setupRewriter(h);
+  const s=$('status'); if(h.trained) s.textContent = 'Policy loaded: '+h.checkpoint;
+  else { s.textContent='Untrained policy: run scripts/pilot.py first'; s.classList.add('warn'); }
+}).catch(()=>{ const s=$('status'); s.textContent='Server not reachable'; s.classList.add('warn'); });
+</script>
+</body>
+</html>
