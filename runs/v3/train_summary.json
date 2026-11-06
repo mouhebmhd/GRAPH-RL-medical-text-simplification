@@ -1,0 +1,68 @@
+{
+ "meta": {
+  "realizer_in_loop": "rules",
+  "llm_model": null,
+  "allow_llm_structure": false,
+  "gamma": 0.03,
+  "beta": 0.0,
+  "coverage_bonus": 0.0,
+  "reject_penalty": 0.1,
+  "scorer": "BandSuitabilityScorer",
+  "encoder": "ContentEncoder",
+  "iters": 100,
+  "episodes": 32,
+  "data": "synthetic"
+ },
+ "rows": [
+  {
+   "seed": 0,
+   "dR": 0.41677430053419323,
+   "S": 0.8893209166112916,
+   "sim": 0.9885432120569881,
+   "inv": 2.6778523489932886,
+   "rej": 0.0,
+   "preserved": 1.0,
+   "dR_random": 0.018811391984549366,
+   "d_vs_greedy": -0.009001111442693388,
+   "inv_vs_greedy": -0.16778523489932873,
+   "S_vs_greedy": -0.014957487281619608
+  }
+ ],
+ "summary": {
+  "dR": {
+   "mean": 0.41677430053419323,
+   "std": NaN,
+   "ci_half": NaN
+  },
+  "d_vs_greedy": {
+   "mean": -0.009001111442693388,
+   "std": NaN,
+   "ci_half": NaN
+  },
+  "inv_vs_greedy": {
+   "mean": -0.16778523489932873,
+   "std": NaN,
+   "ci_half": NaN
+  },
+  "S_vs_greedy": {
+   "mean": -0.014957487281619608,
+   "std": NaN,
+   "ci_half": NaN
+  },
+  "sim": {
+   "mean": 0.9885432120569881,
+   "std": NaN,
+   "ci_half": NaN
+  },
+  "preserved": {
+   "mean": 1.0,
+   "std": NaN,
+   "ci_half": NaN
+  }
+ },
+ "baselines": {
+  "greedy-readability": 0.4257754119768866,
+  "invoke-all": 0.3663791616167189,
+  "no-op (source)": 0.0
+ }
+}

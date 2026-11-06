@@ -11,8 +11,9 @@ import json, os, re, time, urllib.request, urllib.error
 
 SYSTEM = (
     "You are an editor who simplifies ONE span of a clinical sentence for a patient with low health literacy. "
-    "Replace ONLY the given span with a plain-language equivalent of about the same length. Do NOT restructure the "
-    "sentence, split it, merge it, or add or remove clauses. "
+    "Replace ONLY the given span with a plain-language equivalent. The replacement must say everything the span says: "
+    "never delete information and never shorten a multi-word span to fewer words; a plain wording that is a little LONGER "
+    "than the original is good. Do NOT restructure the sentence, split it, merge it, or add or remove clauses. "
     "Rules: keep the exact meaning. Never change, drop or add numbers, doses, units, drug names, negations "
     "(no, not, denies, without) or hedges (may, possible, if, unless). Use short, everyday words. "
     "If the span is already plain or cannot be simplified safely, return it unchanged. "
@@ -29,6 +30,8 @@ def sanitize(raw: str, span: str) -> str:
     if not span.rstrip().endswith("."):
         s = s.rstrip(".")
     if not s or len(s.split()) > 2 * len(span.split()) + 6:   # empty or an explanation, not a span
+        return ""
+    if len(span.split()) >= 3 and len(s.split()) * 2 < len(span.split()):   # compression = information deleted, not substituted
         return ""
     return s
 

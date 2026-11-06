@@ -1,7 +1,7 @@
 """RL environment for traversal-and-invocation over a SentenceGraph.
 
 Actions (index): 0 = INVOKE prompt at current node, 1 = STOP, 2+j = MOVE to node j (j must be a
-neighbour of the current node). Reward implements Eq.(1), R = a*S + b*Sim - g*Cedit, as a telescoping
+neighbour of the current node). Reward implements Eq.(1), R = a*S + b*Sim - g*Cedit with b = 0 by default (S alone; Sim is a post-hoc filter), as a telescoping
 per-step difference, so the return equals R(final) - R(source). Every edit is verifier-gated: a rejected
 edit is rolled back and penalised (this is what keeps the policy from reward-hacking S)."""
 from __future__ import annotations
@@ -19,7 +19,9 @@ DYN_DIM = 3
 @dataclass
 class EnvConfig:
     alpha: float = 1.0          # weight of suitability S(y)
-    beta: float = 0.5           # weight of semantic fidelity Sim(y,x)
+    beta: float = 0.0           # weight of Sim(y,x) in the OBJECTIVE. 0 = S alone (audit item 1): Sim spans ~0.47 and S ~0.12, so any
+                                # beta > 0 lets Sim dominate the gradient. Fidelity is enforced by the verifier gate and, post hoc,
+                                # by an optional Sim floor (SIPGRL(sim_floor=...)); it is still computed and observed, not rewarded.
     gamma: float = 0.03         # cost per prompt invocation (B1: ~25% of a typical edit gain so parsimony is testable)
     move_cost: float = 0.0025   # cost per traversal move
     reject_penalty: float = 0.10

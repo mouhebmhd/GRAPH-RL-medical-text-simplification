@@ -216,3 +216,33 @@ def assert_lexicon_safe(terms=None):
 
 
 assert_lexicon_safe()
+
+
+# ---- item 7: mined lexicon (from scripts/mine_lexicon.py, TRAIN split only) ----------------------------------------------
+# Reviewed hand entries always win; a mined entry is added only if it passes the same safety gate as every other entry.
+MINED_INFO = dict(path=None, added=0, skipped_unsafe=0, split=None)
+
+
+def load_mined_lexicon(path=None):
+    import json as _json
+    path = path or os.environ.get("SIPG_MINED_LEXICON") or os.path.join(os.path.dirname(__file__), "..", "data", "lexicon_mined.json")
+    if os.environ.get("SIPG_MINED_LEXICON", "").lower() == "off" or not os.path.exists(path):
+        return MINED_INFO
+    d = _json.load(open(path, encoding="utf8"))
+    added = skipped = 0
+    for key, e in d.get("entries", {}).items():
+        if key in PLAIN_TERMS:
+            continue
+        if lexicon_entry_problem(key, e["plain"], "term"):
+            skipped += 1
+            continue
+        PLAIN_TERMS[key] = (e["plain"], "term")
+        added += 1
+    MINED_INFO.update(path=os.path.abspath(path), added=added, skipped_unsafe=skipped, split=d.get("meta", {}).get("split"))
+    if MINED_INFO["split"] != "train":
+        raise ValueError(f"mined lexicon {path} was built from split {MINED_INFO['split']!r}, not 'train' (leakage)")
+    return MINED_INFO
+
+
+load_mined_lexicon()
+assert_lexicon_safe()

@@ -8,19 +8,22 @@ from .graph import GraphBuilder, EDGE_TYPES
 from .prompts import PromptInstantiator
 from .realize import RuleRealizer
 from .scoring import FeatureSuitabilityScorer, ConceptEncoder, BandSuitabilityScorer, ContentEncoder
-from .verifier import FidelityVerifier
+from .verifier import FidelityVerifier, default_nli
 from .model import SIPGPolicy
 from .baselines import LearnedPolicy, LearnedThenSweep
 from .glossary import collect as collect_terms
 
 
-def default_parts(target_grade=6.5, cfg=None, nli=None, realizer=None, scorer=None, encoder=None,
-                  instantiator=None, nlp=None):
-    """Assemble all pluggable components (override any with real models)."""
+def default_parts(target_grade=6.5, cfg=None, nli="auto", realizer=None, scorer=None, encoder=None,
+                  instantiator=None, nlp=None, verifier=None):
+    """Assemble all pluggable components (override any with real models).
+    nli="auto" (default): load the HF NLI model for the final gate (see verifier.default_nli); nli=None: lexical only."""
+    if isinstance(nli, str) and nli == "auto":
+        nli = default_nli() if verifier is None else None
     nlp = nlp or spacy.load("en_core_web_sm")
     inst = instantiator or PromptInstantiator()
     return dict(nlp=nlp, builder=GraphBuilder(nlp, inst), scorer=scorer or BandSuitabilityScorer(target_grade),
-                encoder=encoder or ContentEncoder(), verifier=FidelityVerifier(nli=nli),
+                encoder=encoder or ContentEncoder(), verifier=verifier or FidelityVerifier(nli=nli),
                 realizer=realizer or RuleRealizer(), cfg=cfg or EnvConfig())
 
 
@@ -60,8 +63,10 @@ class SimplifyResult:
 
 
 class SIPGRL:
-    def __init__(self, parts=None, policy=None, checkpoint=None, sweep=False):
-        self.sweep = sweep
+    def __init__(self, parts=None, policy=None, checkpoint=None, sweep=False, sim_floor=None):
+        """sim_floor: POST-HOC fidelity filter (audit item 1). Sim is not in the training reward; if set, a sentence whose final Sim to
+        the source is below the floor is emitted unchanged (record['sim_filtered']=True)."""
+        self.sweep, self.sim_floor = sweep, sim_floor
         self.parts = parts or default_parts()
         self.policy = policy or SIPGPolicy()
         self.meta = None
@@ -83,6 +88,9 @@ class SIPGRL:
         if meta.get("realizer_in_loop") != deployed:
             warnings.warn(f"policy was trained with the '{meta.get('realizer_in_loop')}' realizer but is deployed with '{deployed}': "
                           "treat LLM mode as an inference-time augmentation, not something the policy optimised for.")
+        if meta.get("beta", 0.5) != self.parts["cfg"].beta:
+            warnings.warn(f"policy was trained with beta={meta.get('beta', 'legacy 0.5')} (Sim weight in the reward) but the current config "
+                          f"uses beta={self.parts['cfg'].beta}. Checkpoints from before the S-only reward are not comparable.")
         for key, now in (("scorer", type(self.parts["scorer"]).__name__), ("encoder", type(self.parts["encoder"]).__name__)):
             if meta.get(key) != now:
                 warnings.warn(f"policy was trained with {key}={meta.get(key)} but is deployed with {now}.")
@@ -91,8 +99,9 @@ class SIPGRL:
     def save(self, path):
         torch.save(self.policy.state_dict(), path)
 
-    def simplify(self, text: str, apply_all: bool = False) -> SimplifyResult:
-        """apply_all=True: after the policy stops, fire every remaining node's prompt (verifier still gates each edit)."""
+    def simplify(self, text: str, apply_all: bool = False, driver=None) -> SimplifyResult:
+        """apply_all=True: after the policy stops, fire every remaining node's prompt (verifier still gates each edit).
+        driver: optional baseline policy object (reset/act), e.g. GreedyReadabilityPolicy(), used instead of the learned policy."""
         p = self.parts
         doc = p["nlp"](text)
         outs, records = [], []
@@ -103,7 +112,7 @@ class SIPGRL:
             cfg = dataclasses.replace(p["cfg"], max_steps_factor=6) if apply_all else p["cfg"]
             env = SimplifyEnv(p["scorer"], p["encoder"], p["verifier"], p["realizer"], cfg)
             base = LearnedPolicy(self.policy)
-            pol = (LearnedThenSweep(base, kinds=None) if apply_all
+            pol = (driver if driver is not None else LearnedThenSweep(base, kinds=None) if apply_all
                    else LearnedThenSweep(base) if self.sweep else base)
             env.reset(g); pol.reset()
             while not env.done:
@@ -115,9 +124,10 @@ class SIPGRL:
             env_rej = [t for t in env.trail if t.get("event") == "final_reject"]
             fell_back = bool(env_rej) or not final.ok
             f_viol = env_rej[0]["violations"] if env_rej else final.violations
-            # the env already reverts to the source on a failed final check (event 'final_reject'); count both paths
-            fell_back = (not final.ok) or any(t.get("event") == "final_reject" for t in env.trail)
             out = env.text if final.ok else env.src       # hard safety fallback: never emit unverified text
+            sim_filtered = bool(self.sim_floor is not None and final.ok and not fell_back and env.sim < self.sim_floor)
+            if sim_filtered:
+                out = env.src
             outs.append(out)
             nodes, edges = graph_json(g)
             steps, prev, ops, skipped, rejected = [], env.src, [], [], []
@@ -139,7 +149,7 @@ class SIPGRL:
                         {**base, "violations": t.get("violations", [])})
                 prev = t["text"]
             records.append(dict(graph=dict(nodes=nodes, edges=edges), steps=steps, operations=ops,
-                                skipped=skipped, rejected=rejected, final_rejected=fell_back,
+                                skipped=skipped, rejected=rejected, final_rejected=fell_back, sim_filtered=sim_filtered,
                                 n_moves=env.n_move, n_invokes=env.n_inv, n_dropped=getattr(g, "n_dropped", 0), source=env.src, output=out, verified=not fell_back, violations=f_viol,
                                 S_before=env.S0, S_after=env.S if not fell_back else env.S0, sim=env.sim,
                                 trail=[t for t in env.trail if t["action"] == "INVOKE"]))

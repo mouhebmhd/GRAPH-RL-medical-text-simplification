@@ -13,7 +13,11 @@ CLAUSE_KINDS = {"ROOT", "RELCL", "CONJ_CL", "ADVCL", "CCOMP", "ACL"}
 EDGE_TYPES = ["syn_down", "syn_up", "contrast", "elaboration", "condition", "cause", "sequence",
               "next", "prev", "self"]
 ET = {n: i for i, n in enumerate(EDGE_TYPES)}
-N_MAX = 24
+import os as _os
+# Node cap per sentence. The policy is size-agnostic (GAT + dot-product pointer head: no weight depends on N_MAX), so a checkpoint
+# trained at one cap loads at another; only the env's action-space width changes. Measure clipping with scripts/graph_stats.py
+# on your corpus before choosing; override with SIPG_NMAX=40 etc.
+N_MAX = int(_os.environ.get("SIPG_NMAX", "24"))
 PROMPT_DIM = 16
 STATIC_DIM = len(KINDS) + 6 + PROMPT_DIM
 

@@ -116,7 +116,11 @@ class RuleRealizer(Realizer):
 
 import inspect
 
-LLM_KINDS = ('LEX', 'NOM', 'CPLX', 'AMOD', 'CCOMP', 'ACL')
+# Edit-type ownership (audit items 8/9).  Rules own every STRUCTURAL edit (clause splits) and every lexicon hit; the LLM owns only
+# span-local LEXICAL substitution for spans the lexicon does not cover.  Neither performs the other's edit type.
+RULE_OWNED_KINDS = ('RELCL', 'CONJ_CL', 'ADVCL')          # clause splitting: deterministic, structure-safe
+LEXICAL_KINDS = ('LEX', 'NOM', 'CPLX', 'AMOD')
+LLM_KINDS = LEXICAL_KINDS                                  # legacy LLM-first path no longer receives CCOMP/ACL (item 8)
 
 
 class CallableRealizer(Realizer):
@@ -175,6 +179,8 @@ def lexical_guard(before: str, after: str) -> bool:
     if not a or a == b:
         return False
     if _SENT_PUNCT.search(a) and not _SENT_PUNCT.search(b):      # would introduce a sentence boundary / list
+        return False
+    if len(b.split()) >= 3 and len(a.split()) * 2 < len(b.split()):   # compression: information deleted, not substituted
         return False
     if _DIGIT.search(a) and not _DIGIT.search(b):                # no new numbers
         return False

@@ -13,7 +13,7 @@ from sipg_rl.data import synth
 
 S1 = "Discontinue lisinopril 10 mg if the patient develops hypertensive urgency, because the drug is contraindicated in renal impairment."
 BASE = EnvConfig()
-EVAL = default_parts(cfg=BASE)                      # common yardstick for every config
+EVAL = default_parts(cfg=BASE, nli=None)                      # common yardstick for every config
 sents = synth(450, 0)
 graphs = [EVAL["builder"].build_text(s) for s in sents]
 train, test = graphs[:301], graphs[301:]
@@ -51,7 +51,7 @@ trails = {}
 for name in ONLY:
     cfg, enc = configs[name]
     t0 = time.time()
-    parts = default_parts(cfg=cfg, encoder=enc, nlp=EVAL["nlp"])
+    parts = default_parts(cfg=cfg, encoder=enc, nlp=EVAL["nlp"], nli=None)
     parts["builder"] = EVAL["builder"]
     torch.manual_seed(0)
     pi = SIPGPolicy()

@@ -26,9 +26,49 @@ ANTONYMS = {"increased": "decreased", "decreased": "increased", "improved": "wor
             "normal": "abnormal", "abnormal": "normal", "elevated": "low", "low": "elevated", "positive": "negative",
             "negative": "positive", "benign": "malignant", "malignant": "benign", "resolved": "worsened"}
 _ANT_RX = re.compile(r"\b(" + "|".join(ANTONYMS) + r")\b", re.I)
-_SWAP = {"warfarin": "aspirin", "aspirin": "warfarin", "metformin": "insulin", "insulin": "metformin",
-         "lisinopril": "losartan", "ibuprofen": "acetaminophen", "heparin": "warfarin", "digoxin": "amiodarone"}
-_SWAP_RX = re.compile(r"\b(" + "|".join(_SWAP) + r")\b", re.I)
+# Item 6: the old map held 8 drugs, so on Med-EASi (few named drugs per sentence) the injector found nothing: injected = 0.
+# Now EVERY critical drug name is swappable, each to a drug from a different class (a wrong-drug error, not a typo).
+_DRUG_CLASSES = [
+    "warfarin heparin apixaban rivaroxaban clopidogrel aspirin".split(),
+    "lisinopril losartan amlodipine metoprolol carvedilol propranolol bisoprolol".split(),
+    "metformin insulin levothyroxine prednisone".split(),
+    "atorvastatin simvastatin omeprazole furosemide hydrochlorothiazide spironolactone digoxin amiodarone".split(),
+    "ibuprofen naproxen acetaminophen paracetamol tramadol oxycodone morphine fentanyl hydrocodone".split(),
+    "lorazepam diazepam alprazolam sertraline fluoxetine citalopram escitalopram lithium".split(),
+    "gabapentin carbamazepine phenytoin levetiracetam".split(),
+    "amoxicillin azithromycin ciprofloxacin methotrexate tacrolimus albuterol salbutamol".split(),
+]
+_SWAP = {}
+for _i, _cls in enumerate(_DRUG_CLASSES):
+    _other = _DRUG_CLASSES[(_i + 1) % len(_DRUG_CLASSES)]
+    for _j, _d in enumerate(_cls):
+        _SWAP[_d] = _other[_j % len(_other)]
+_SWAP_RX = re.compile(r"\b(" + "|".join(sorted(_SWAP, key=len, reverse=True)) + r")\b", re.I)
+
+# Sentences used to top up a mode that matches fewer than `min_injected` real sources (tagged synthetic in the report).
+SYNTHETIC_SOURCES = [
+    "The patient was started on {d} {n} mg daily for the treatment of hypertension.",
+    "Do not give {d} to a patient with renal impairment.",
+    "She denies chest pain and takes {d} {n} mg twice daily.",
+    "{D} may cause dizziness, and the dose of {d} was increased to {n} mg.",
+    "The hypertensive patient reports no dyspnea after {d} {n} mg was administered.",
+    "Discontinue {d} if nausea or vomiting occurs.",
+    "Prior to the procedure, {d} {n} mg was held and the patient was monitored.",
+    "He has been taking {d} {n} mg and tolerates it well.",
+    "Possible interaction between {d} and the new antibiotic was noted at admission.",
+    "Monitoring of renal function is advised in patients receiving {d} {n} mg.",
+    "Edema improved after {d} {n} mg was initiated, and blood pressure remained elevated.",
+    "The recommended dose of {d} is {n} mg once daily unless dyspnea is present.",
+]
+
+
+def synthetic_sources(k=12):
+    ds = sorted(_SWAP)
+    out = []
+    for i in range(k):
+        d = ds[(i * 5) % len(ds)]
+        out.append(SYNTHETIC_SOURCES[i % len(SYNTHETIC_SOURCES)].format(d=d, D=d.capitalize(), n=[5, 10, 20, 40, 81, 100][i % 6]))
+    return out
 
 
 def corrupt(mode: str, text: str) -> str:
@@ -96,30 +136,46 @@ class AdversarialRealizer(Realizer):
 class SelfTestRow:
     mode: str
     injected: int = 0
+    n_synthetic: int = 0          # how many of `injected` came from the synthetic top-up rather than the real data
     edit_gate: int = 0
     final_gate: int = 0
     leaked: int = 0
     examples: list = field(default_factory=list)
+    leaks: list = field(default_factory=list)       # every leaked case: source, output, NLI probabilities
 
     @property
     def recall(self):
         return (self.edit_gate + self.final_gate) / self.injected if self.injected else float("nan")
 
 
-def selftest(make_system, sources, modes=MODES, max_per_mode=50):
-    """make_system(realizer) -> object with .simplify(text, apply_all=True) (an SIPGRL built on that realizer, NLI as configured)."""
+def selftest(make_system, sources, modes=MODES, max_per_mode=50, min_injected=9, nli=None):
+    """make_system(realizer) -> object with .simplify(text, apply_all=True) (an SIPGRL built on that realizer, NLI as configured).
+    A mode that applies to fewer than `min_injected` real sources is topped up from synthetic_sources() (tagged in
+    row.n_synthetic) so that a mode can never silently report injected = 0.  Leaks are kept in row.leaks with the NLI
+    probabilities (when `nli` is given) so a residual leak can be inspected, not just counted."""
     rows = []
     for mode in modes:
         row, sysm = SelfTestRow(mode), make_system(AdversarialRealizer(mode))
-        for src in [s for s in sources if applies(mode, s)][:max_per_mode]:
+        real = [s for s in sources if applies(mode, s)][:max_per_mode]
+        topup = [s for s in synthetic_sources(24) if applies(mode, s)][:max(0, min_injected - len(real))]
+        for src in real + topup:
             res = sysm.simplify(src, apply_all=True)
             row.injected += 1
+            row.n_synthetic += int(src in topup)
             rec = res.sentences
             row.edit_gate += int(any(r["rejected"] for r in rec))
             row.final_gate += int(any(r["final_rejected"] for r in rec))
             lk = leaked(mode, src, res.text)
             row.leaked += int(lk)
-            if lk and len(row.examples) < 3:
-                row.examples.append((src, res.text))
+            if lk:
+                probs = None
+                if nli is not None:
+                    try:
+                        probs = {k: round(float(v), 3) for k, v in nli(src, res.text).items()}
+                    except Exception as e:
+                        probs = {"error": str(e)[:80]}
+                row.leaks.append(dict(source=src, output=res.text, nli=probs, synthetic=src in topup))
+                if len(row.examples) < 3:
+                    row.examples.append((src, res.text))
         rows.append(row)
     return rows

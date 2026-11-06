@@ -7,7 +7,7 @@ from sipg_rl.env import SimplifyEnv, INVOKE, STOP, MOVE0, format_trail
 from sipg_rl.baselines import RandomPolicy, InvokeAllPolicy, NoOpPolicy, run_episode
 from sipg_rl.data import synth
 
-P = default_parts(); sc, enc, ver, cfg = P["scorer"], P["encoder"], P["verifier"], P["cfg"]
+P = default_parts(nli=None); sc, enc, ver, cfg = P["scorer"], P["encoder"], P["verifier"], P["cfg"]
 mk = lambda: SimplifyEnv(sc, enc, ver, P["realizer"], cfg)
 graphs = [P["builder"].build_text(s) for s in synth(150, 1)]
 R = lambda S, sim: cfg.alpha * S + cfg.beta * sim

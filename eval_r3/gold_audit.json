@@ -1,0 +1,22 @@
+{
+ "n": 150,
+ "rejected": 29,
+ "rate": 0.19333333333333333,
+ "ci": [
+  0.13811802293025152,
+  0.2638642757457893
+ ],
+ "by_kind": {
+  "hedge dropped": 10,
+  "negation cue dropped": 8,
+  "hallucinated number": 9,
+  "conditional dropped": 6,
+  "number/dose lost or altered": 27
+ },
+ "auto_likely_fp": 7,
+ "legacy_rejected": 29,
+ "legacy_rate": 0.19333333333333333,
+ "format_artefacts": 0,
+ "artefact_causes": {},
+ "csv": "eval_r3\\audit_gold.csv"
+}
