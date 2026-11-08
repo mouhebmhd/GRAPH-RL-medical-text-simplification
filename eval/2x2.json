@@ -1,0 +1,142 @@
+{
+ "strong|verifier_on": {
+  "n": 200,
+  "unsafe_rate": 0.0,
+  "preservation": {
+   "number": {
+    "rate": 1.0,
+    "n": 144
+   },
+   "negation": {
+    "rate": 1.0,
+    "n": 137
+   },
+   "hedge": {
+    "rate": 1.0,
+    "n": 10
+   },
+   "conditional": {
+    "rate": 1.0,
+    "n": 8
+   },
+   "drug": {
+    "rate": 1.0,
+    "n": 177
+   },
+   "abbrev": {
+    "rate": 1.0,
+    "n": 20
+   }
+  },
+  "S_gain": 0.22382793685509206,
+  "edits": 1.735,
+  "rejected": 2.11,
+  "fallback_rate": 0.0,
+  "changed_rate": 0.875
+ },
+ "strong|verifier_off": {
+  "n": 200,
+  "unsafe_rate": 0.895,
+  "preservation": {
+   "number": {
+    "rate": 0.4236111111111111,
+    "n": 144
+   },
+   "negation": {
+    "rate": 0.46715328467153283,
+    "n": 137
+   },
+   "hedge": {
+    "rate": 0.1,
+    "n": 10
+   },
+   "conditional": {
+    "rate": 0.375,
+    "n": 8
+   },
+   "drug": {
+    "rate": 0.3728813559322034,
+    "n": 177
+   },
+   "abbrev": {
+    "rate": 1.0,
+    "n": 20
+   }
+  },
+  "S_gain": 0.5322355022084909,
+  "edits": 3.755,
+  "rejected": 0.0,
+  "fallback_rate": 0.0,
+  "changed_rate": 0.98
+ },
+ "weak|verifier_on": {
+  "n": 200,
+  "unsafe_rate": 0.0,
+  "preservation": {
+   "number": {
+    "rate": 1.0,
+    "n": 144
+   },
+   "negation": {
+    "rate": 1.0,
+    "n": 137
+   },
+   "hedge": {
+    "rate": 1.0,
+    "n": 10
+   },
+   "conditional": {
+    "rate": 1.0,
+    "n": 8
+   },
+   "drug": {
+    "rate": 1.0,
+    "n": 177
+   },
+   "abbrev": {
+    "rate": 1.0,
+    "n": 20
+   }
+  },
+  "S_gain": 0.3962587296612029,
+  "edits": 2.21,
+  "rejected": 0.0,
+  "fallback_rate": 0.0,
+  "changed_rate": 0.925
+ },
+ "weak|verifier_off": {
+  "n": 200,
+  "unsafe_rate": 0.0,
+  "preservation": {
+   "number": {
+    "rate": 1.0,
+    "n": 144
+   },
+   "negation": {
+    "rate": 1.0,
+    "n": 137
+   },
+   "hedge": {
+    "rate": 1.0,
+    "n": 10
+   },
+   "conditional": {
+    "rate": 1.0,
+    "n": 8
+   },
+   "drug": {
+    "rate": 1.0,
+    "n": 177
+   },
+   "abbrev": {
+    "rate": 1.0,
+    "n": 20
+   }
+  },
+  "S_gain": 0.3962587296612029,
+  "edits": 2.21,
+  "rejected": 0.0,
+  "fallback_rate": 0.0,
+  "changed_rate": 0.925
+ }
+}

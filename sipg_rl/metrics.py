@@ -95,8 +95,11 @@ _NUMRE = re.compile(r"\d+(?:\.\d+)?")
 
 
 def numbers_kept(src: str, out: str) -> bool:
-    """Every number in the source still occurs (with at least the same multiplicity) in the output."""
-    return not (Counter(_NUMRE.findall(src)) - Counter(_NUMRE.findall(out)))
+    """Every number in the source still occurs (with at least the same multiplicity) in the output.
+    Values are normalised first (4,000 == 4000, 50mg == 50 milligrams) so format differences are not 'losses'."""
+    from .normalize import normalize_number_unit
+    vals = lambda t: Counter(v for v, _ in normalize_number_unit(t))
+    return not (vals(src) - vals(out))
 
 
 def negations_kept(src: str, out: str) -> bool:
@@ -157,3 +160,169 @@ def paired_diff_ci(a, b, n=5000, seed=0):
     rng = np.random.default_rng(seed)
     bs = d[rng.integers(0, len(d), (n, len(d)))].mean(1)
     return float(d.mean()), float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))
+
+
+# =====================================================================================================
+# P1.2 - diagnostics that explain the headline numbers. Pure functions: (source, output, meta) -> value.
+# Per-example results may contain None ("category absent in this source"); aggregate with `agg_rates`.
+# =====================================================================================================
+import difflib as _difflib
+from .lexicon import CRITICAL_TERMS
+import re as _re
+
+_PROC_SUFFIX = ("ectomy", "otomy", "ostomy", "plasty", "scopy", "graphy", "centesis", "pexy", "desis")
+_COND_SUFFIX = ("itis", "emia", "osis", "pathy", "pnea", "edema", "algia", "trophy", "plegia", "uria", "rrhea")
+_COND_SET = {"hypertension", "hypotension", "syncope", "pruritus", "erythema", "emesis", "pyrexia", "tachycardia",
+             "bradycardia", "cephalalgia", "myocardial infarction", "dyspnea", "exacerbation"}
+JARGON_CATEGORIES = ("drug", "condition", "procedure", "abbrev", "other")
+_WRE = lambda w: _re.compile(rf"(?<![A-Za-z]){_re.escape(w)}(?![A-Za-z])", _re.I)
+
+
+def jargon_category(key: str, cat: str = "term") -> str:
+    if cat == "abbr" or (key.isupper() and 2 <= len(key) <= 5):
+        return "abbrev"
+    k = key.lower()
+    if k in CRITICAL_TERMS:
+        return "drug"
+    if k.endswith(_PROC_SUFFIX):
+        return "procedure"
+    if k in _COND_SET or k.endswith(_COND_SUFFIX):
+        return "condition"
+    return "other"
+
+
+def agg_rates(rows: list, keys) -> dict:
+    """Mean of per-example dict values over examples where the category was present (None skipped) + its support."""
+    out = {}
+    for k in keys:
+        v = [r[k] for r in rows if r.get(k) is not None]
+        out[k] = (sum(v) / len(v) if v else None)
+        out[k + "_n"] = len(v)
+    return out
+
+
+def jargon_kept_by_category(src: str, out: str, lexicon=None) -> dict:
+    """Of the jargon in the SOURCE, the share still present in the output, by category. None = no such jargon in source.
+    Lower is better for terms that should be simplified; for `drug` it must stay 1.0 (drug names are never simplified)."""
+    from .lexicon import PLAIN_TERMS as _PT
+    lex = lexicon or _PT
+    buckets = {c: [] for c in JARGON_CATEGORIES}
+    for key, val in lex.items():
+        if _WRE(key).search(src):
+            buckets[jargon_category(key, val[1] if isinstance(val, (tuple, list)) else "term")].append(bool(_WRE(key).search(out)))
+    for d in CRITICAL_TERMS:
+        if _WRE(d).search(src):
+            buckets["drug"].append(bool(_WRE(d).search(out)))
+    return {c: (sum(v) / len(v) if v else None) for c, v in buckets.items()}
+
+
+def layman_hit_by_node_type(src: str, out: str, src_graph, lexicon=None) -> dict:
+    """Where does the layman-hit gap live? Per node kind of the SOURCE graph (`src_graph`: a SentenceGraph, or a list of them):
+      LEX / NOM / AMOD : the node's plain wording appears in the output          (lexicon-covered nodes only)
+      CPLX             : the long word is gone from the output                     (no layman target known)
+      clause           : output has more sentences than the source (clause was split), over non-root clause nodes."""
+    from .lexicon import PLAIN_TERMS as _PT, ADJ_REL as _AR
+    lex = lexicon or _PT
+    graphs = src_graph if isinstance(src_graph, (list, tuple)) else [src_graph]
+    nsent = lambda t: max(1, len([s for s in _re.split(r"(?<=[.!?])\s+", t.strip()) if s]))
+    split = nsent(out) > nsent(src)
+    hits = {"LEX": [], "NOM": [], "AMOD": [], "CPLX": [], "clause": []}
+    for g in graphs:
+        for n in g.nodes:
+            key = n.meta.get("key", "")
+            if n.kind in ("LEX", "NOM") and key in lex:
+                hits[n.kind].append(bool(_WRE(lex[key][0]).search(out)))
+            elif n.kind == "AMOD" and key in _AR:
+                hits["AMOD"].append(bool(_WRE(_AR[key][0]).search(out)))
+            elif n.kind == "CPLX":
+                hits["CPLX"].append(not _WRE(key).search(out))
+            elif n.kind in ("RELCL", "CONJ_CL", "ADVCL", "CCOMP", "ACL"):
+                hits["clause"].append(split)
+    return {k: (sum(v) / len(v) if v else None) for k, v in hits.items()}
+
+
+def critical_preservation_by_category(src: str, out: str) -> dict:
+    """True/False per category when the source contains it, else None. Aggregate with agg_rates()."""
+    from .normalize import normalize_number_unit
+    from .lexicon import NEGATION_CUES as NC, HEDGE_CUES as HC, COND_CUES as CC
+    words = lambda t: _re.findall(r"[a-z']+", t.lower())
+    cnt = lambda t, cues: sum(1 for w in words(t) if w in cues or (cues is NC and w.endswith("n't")))
+    sn, on = Counter(normalize_number_unit(src)), Counter(normalize_number_unit(out))
+    sv, ov = Counter(v for v, _ in sn.elements()), Counter(v for v, _ in on.elements())
+    su = Counter(p for p in sn.elements() if p[1])
+    res = {
+        "number": (not (sv - ov)) if sv else None,
+        "unit": (not (su - on)) if su else None,
+        "negation": (cnt(out, NC) >= cnt(src, NC)) if cnt(src, NC) else None,
+        "hedge": (cnt(out, HC) >= cnt(src, HC)) if cnt(src, HC) else None,
+        "conditional": (cnt(out, CC) >= cnt(src, CC)) if cnt(src, CC) else None,
+    }
+    drugs = [d for d in CRITICAL_TERMS if _WRE(d).search(src)]
+    res["drug"] = all(_WRE(d).search(out) for d in drugs) if drugs else None
+    return res
+
+
+CRITICAL_CATEGORIES = ("number", "unit", "negation", "hedge", "conditional", "drug")
+
+
+def edit_type_distribution(src: str, out: str, medeasi_labels: dict | None = None) -> dict:
+    """Fractions of EDITED tokens by type: replacement / deletion / insertion / elaboration (an insertion run of >= 4 tokens).
+    The reference mostly does replacement+elaboration; an LLM that mostly deletes explains a SARI below copy.
+    If `medeasi_labels` ({label: count}) is given it is normalised and returned instead (use the corpus' own annotation)."""
+    if medeasi_labels:
+        tot = sum(medeasi_labels.values()) or 1
+        return {k: v / tot for k, v in medeasi_labels.items()}
+    a, b = tokenize(src), tokenize(out)
+    c = Counter()
+    for tag, i1, i2, j1, j2 in _difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if tag == "replace":
+            c["replacement"] += max(i2 - i1, j2 - j1)
+        elif tag == "delete":
+            c["deletion"] += i2 - i1
+        elif tag == "insert":
+            c["elaboration" if j2 - j1 >= 4 else "insertion"] += j2 - j1
+    tot = sum(c.values())
+    return {k: (c[k] / tot if tot else 0.0) for k in ("replacement", "deletion", "insertion", "elaboration")}
+
+
+def target_attainment(fkgl_list, lo: float = 6, hi: float = 8) -> float:
+    """Share of outputs whose FKGL lies in [lo, hi]. A mean FKGL can hide a bimodal split (some too hard, some too easy)."""
+    v = [x for x in fkgl_list if x is not None and x == x]
+    return sum(lo <= x <= hi for x in v) / len(v) if v else float("nan")
+
+
+def d_sari(src, out, refs) -> dict:
+    """Document-level SARI. Lists of equal length are concatenated into ONE document each (n-gram statistics over the whole
+    document, not a mean of sentence scores); plain strings are scored directly. `refs` is the reference document."""
+    j = lambda x: " ".join(x) if isinstance(x, (list, tuple)) else x
+    return sari(j(src), j(out), j(refs))
+
+
+_SOFT = None
+
+
+def bertscore(src: str, out: str, backend=None) -> dict:
+    """Length-invariant fidelity P/R/F1 of `out` against `src`. `backend`: any object from sipg_rl.fidelity
+    (BertScoreFidelity for the real metric); default is the OFFLINE fallback SoftTokenFidelity (weak on open paraphrase)."""
+    global _SOFT
+    if backend is None:
+        if _SOFT is None:
+            from .fidelity import SoftTokenFidelity
+            _SOFT = SoftTokenFidelity()
+        backend = _SOFT
+    return backend.score(src, out)
+
+
+def nli_entailment(src: str, out: str, nli=None):
+    """Bidirectional entailment {fwd: src=>out, bwd: out=>src, min, asym}. None when no NLI model is supplied."""
+    if nli is None:
+        return None
+    f, b = float(nli(src, out).get("entailment", 0.0)), float(nli(out, src).get("entailment", 0.0))
+    return dict(fwd=f, bwd=b, min=min(f, b), asym=abs(f - b))
+
+
+def nli_disagreement(src: str, out: str, nli, thr: float = 0.5):
+    """Semantic-drift proxy that needs no human labels: the source entails the output but the output does NOT entail the
+    source (information was lost or the claim was narrowed). None when no NLI model is supplied."""
+    r = nli_entailment(src, out, nli)
+    return None if r is None else bool(r["fwd"] >= thr and r["bwd"] < thr)

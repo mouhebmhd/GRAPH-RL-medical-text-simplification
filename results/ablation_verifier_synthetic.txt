@@ -1,0 +1,5 @@
+
+=== ABLATION: verifier (always-pass) under injected unsafe edits ===
+condition          injected  leaked  unsafe outputs       number         unit     negation        hedge  conditional
+full verifier           204       0            0.0%       100.0%       100.0%       100.0%          n/a       100.0%
+verifier ablated        202     202           77.2%        59.7%        59.7%        58.4%          n/a        23.1%

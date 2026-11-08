@@ -18,7 +18,7 @@ def evaluate(parts, graphs, policy):
     for g in graphs:
         run_episode(env, g, policy)
         ok = parts["verifier"].check(env.src, env.text, use_nli=False).ok
-        rows.append(dict(R=env.final_reward, dR=env.final_reward - (env.cfg.alpha * env.S0 + env.cfg.beta),
+        rows.append(dict(R=env.final_reward, dR=env.final_reward - env.phi0,
                          S=env.S, S0=env.S0, sim=env.sim, inv=env.n_inv, mv=env.n_move, rej=env.n_reject,
                          changed=env.n_changed, preserved=ok, out=env.text, src=env.src))
     return rows
@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--corpus", default=None, help="optional JSONL with a 'source' field (Med-EASi etc.)")
     ap.add_argument("--coverage_bonus", type=float, default=0.0)
-    ap.add_argument("--gamma", type=float, default=0.03)
+    ap.add_argument("--gamma", type=float, default=0.01)
     ap.add_argument("--out", default="pilot_report.json")
     ap.add_argument("--ckpt", default="sipg_policy.pt")
     a = ap.parse_args()

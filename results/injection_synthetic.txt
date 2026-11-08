@@ -1,0 +1,8 @@
+300 base examples (synth); gate = lexical verifier
+injector           injected excluded  caught  leaked   recall
+swap_drug               273        0     273       0   100.0%
+dose_x10                228        0     228       0   100.0%
+drop_negation           211        0     211       0   100.0%
+drop_hedge               11        0      11       0   100.0%
+drop_conditional         15        0      15       0   100.0%
+antonym                  90        0       0      90     0.0%

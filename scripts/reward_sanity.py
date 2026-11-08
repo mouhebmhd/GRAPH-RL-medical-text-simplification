@@ -10,7 +10,7 @@ from sipg_rl.data import synth
 P = default_parts(); sc, enc, ver, cfg = P["scorer"], P["encoder"], P["verifier"], P["cfg"]
 mk = lambda: SimplifyEnv(sc, enc, ver, P["realizer"], cfg)
 graphs = [P["builder"].build_text(s) for s in synth(150, 1)]
-R = lambda S, sim: cfg.alpha * S + cfg.beta * sim
+R = lambda S, sim: 1.0 * S + 0.5 * sim   # legacy v1 composite, for this diagnostic only
 
 print("A. Telescoping identity: sum of step rewards == R(final) - R(source) (clean episodes)")
 rng, errs = RandomPolicy(0), []
@@ -55,7 +55,7 @@ print("\nE. Cost vs gain scale (is gamma doing any work?)")
 gains, costs = [], []
 for g in graphs:
     e = mk(); e.reset(g)
-    gains += [e.peek(j)[0] * cfg.alpha for j in range(g.n) if e.peek(j)[1]]
+    gains += [e.peek(j)[0] for j in range(g.n) if e.peek(j)[1]]
 print(f"   median positive S-gain per edit {np.median([x for x in gains if x>0]):.3f} vs gamma {cfg.gamma} "
       f"(ratio {np.median([x for x in gains if x>0])/cfg.gamma:.0f}x) -> cost only breaks ties unless gain < gamma")
 print(f"   share of changing edits that LOWER S immediately: {np.mean(np.array(gains) < 0)*100:.0f}%")

@@ -4,12 +4,12 @@ import random, time
 import numpy as np
 import torch
 from torch.distributions import Categorical
-from .env import SimplifyEnv
+from .env import SimplifyEnv, make_env as _make_env
 from .model import SIPGPolicy, collate
 
 
 def make_env(parts):
-    return SimplifyEnv(parts["scorer"], parts["encoder"], parts["verifier"], parts["realizer"], parts.get("cfg"))
+    return _make_env(parts)
 
 
 class PPOTrainer:
@@ -88,7 +88,7 @@ class PPOTrainer:
             envs, traj = self.rollout(graphs, episodes)
             pl, vl, ent = self.update(traj)
             if it == 1 or it % 5 == 0 or it == iters:
-                R = np.mean([e.final_reward - (e.cfg.alpha * e.S0 + e.cfg.beta) for e in envs])
+                R = np.mean([e.final_reward - e.phi0 for e in envs])
                 log(f"it {it:3d} | dR {R:+.4f} | S {np.mean([e.S for e in envs]):.3f} | "
                     f"sim {np.mean([e.sim for e in envs]):.3f} | inv {np.mean([e.n_inv for e in envs]):.1f} "
                     f"mv {np.mean([e.n_move for e in envs]):.1f} rej {np.mean([e.n_reject for e in envs]):.2f} "

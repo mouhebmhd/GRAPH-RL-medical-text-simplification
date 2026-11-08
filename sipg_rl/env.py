@@ -18,47 +18,69 @@ DYN_DIM = 3
 
 @dataclass
 class EnvConfig:
-    alpha: float = 1.0          # weight of suitability S(y)
-    beta: float = 0.5           # weight of semantic fidelity Sim(y,x)
-    gamma: float = 0.03         # cost per prompt invocation (B1: ~25% of a typical edit gain so parsimony is testable)
-    move_cost: float = 0.0025   # cost per traversal move
+    reward_version: str = "s_only"      # preset: "s_only" (default, P0.1) | "v1" (S + 0.5*Sim, ablation) | "v2" | "custom"
+    reward_components: tuple = ("S",)   # used verbatim when reward_version == "custom"
+    reward_weights: dict = None
+    gamma: float = 0.03         # cost per prompt invocation (edit-cost penalty)
+    move_cost: float = 0.005    # cost per traversal move
     reject_penalty: float = 0.10
-    coverage_bonus: float = 0.0  # B3: OFF by default; it encoded a hand heuristic, fix the base reward instead
+    coverage_bonus: float = 0.0  # OFF: a hand-written bonus hides a misaligned base reward; ablation only
     fail_final_penalty: float = 1.0
     max_steps_factor: int = 3
+    illegal_penalty: float = 0.05
+
+    def __post_init__(self):
+        from .reward import PRESETS
+        if self.reward_version != "custom":
+            self.reward_components, self.reward_weights = PRESETS[self.reward_version]
+            self.reward_weights = dict(self.reward_weights)
+        elif not self.reward_weights:
+            raise ValueError("reward_version='custom' needs reward_weights")
 
 
 class SimplifyEnv:
-    def __init__(self, scorer, encoder, verifier, realizer, cfg: EnvConfig | None = None):
+    def __init__(self, scorer, encoder, verifier, realizer, cfg: EnvConfig | None = None,
+                 fidelity=None, calibration=None):
+        from .fidelity import SoftTokenFidelity
+        from .reward import RewardCalibration
         self.scorer, self.enc, self.ver, self.rz = scorer, encoder, verifier, realizer
         self.cfg = cfg or EnvConfig()
+        self.fidelity = fidelity or SoftTokenFidelity(encoder)
+        self.cal = calibration or RewardCalibration.load()
 
     # -------------------------------------------------------------------------------------
     def reset(self, graph):
         self.g = graph
         self.st = EditState(graph.toks)
         self.src = self.st.render()
-        if not isinstance(graph.src_vec, dict):      # cache is per-encoder: graphs may be shared across encoders
+        if not isinstance(graph.src_vec, dict):      # cache is per scorer-object: graphs may be shared across encoders
             graph.src_vec = {}
-        if id(self.enc) not in graph.src_vec:
-            graph.src_vec[id(self.enc)] = self.enc.encode(self.src)
-        self.src_vec = graph.src_vec[id(self.enc)]
-        self.cur = 0
+        for ref, fn in ((self.enc, self.enc.encode), (self.fidelity, self.fidelity.prepare)):
+            if id(ref) not in graph.src_vec:
+                graph.src_vec[id(ref)] = fn(self.src)
+        self.src_vec, self.src_fid = graph.src_vec[id(self.enc)], graph.src_vec[id(self.fidelity)]
+        self.cur = getattr(graph, "start", 0)
         self.visited = np.zeros(N_MAX, np.float32)
         self.invoked = np.zeros(N_MAX, np.float32)
-        self.visited[0] = 1
+        self.visited[self.cur] = 1
         self.text = self.src
         self.S = self.scorer(self.text)
-        self.sim = 1.0
-        self.phi = self.cfg.alpha * self.S + self.cfg.beta * self.sim
+        self.sim, self.fid = 1.0, 1.0          # LOGGED every step; only in phi if listed in reward_components
+        self.phi = self._phi(self.S, self.sim, self.fid)
+        self.phi0 = self.phi
         self.S0 = self.S
         self.n_inv = self.n_move = self.n_changed = self.n_reject = self.steps = 0
         self.done, self.trail = False, []
         self.max_steps = self.cfg.max_steps_factor * graph.n + 2
         return self.obs()
 
+    def _phi(self, S, sim, fid):
+        from .reward import potential
+        return potential(dict(S=S, sim=sim, fid=fid, cal=self.cal), self.cfg)
+
     def _score(self, text):
-        return self.scorer(text), self.enc.cos(self.enc.encode(text), self.src_vec)
+        return (self.scorer(text), self.enc.cos(self.enc.encode(text), self.src_vec),
+                self.fidelity.score_prepared(self.src_fid, text)["f1"])
 
     @property
     def edit_cost(self):
@@ -66,9 +88,8 @@ class SimplifyEnv:
 
     @property
     def final_reward(self):
-        """R(y,x) of Eq.(1) for the current text."""
-        c = self.cfg
-        return c.alpha * self.S + c.beta * self.sim - self.edit_cost
+        """R(y,x) of Eq.(1): potential of the current text minus accumulated edit/move costs."""
+        return self.phi - self.edit_cost
 
     # -------------------------------------------------------------------------------------
     def action_mask(self):
@@ -108,8 +129,9 @@ class SimplifyEnv:
         assert not self.done
         a, r, info = int(a), 0.0, {}
         self.steps += 1
+        S_before, verdict, rinfo, via = self.S, None, None, None
         if not self.action_mask()[a]:          # illegal -> treated as STOP with penalty
-            a, r = STOP, r - 0.05
+            a, r = STOP, r - self.cfg.illegal_penalty
         node = self.g.nodes[self.cur]
         if a == INVOKE:
             snap = self.st.snapshot()
@@ -117,32 +139,33 @@ class SimplifyEnv:
             self.n_inv += 1
             r -= self.cfg.gamma
             changed = self.rz.apply(self.g, node, self.st)
+            rinfo, via = getattr(self.rz, "last_info", None), getattr(self.rz, "last_via", None)
             if changed:
                 new_text = self.st.render()
                 vr = self.ver.check(self.src, new_text, use_nli=False)
+                verdict = "pass" if vr.ok else "reject"
                 if not vr.ok:
                     self.st.restore(snap)
                     self.n_reject += 1
                     r -= self.cfg.reject_penalty
                     info = dict(event="rejected", violations=vr.violations)
                 else:
-                    S, sim = self._score(new_text)
-                    phi = self.cfg.alpha * S + self.cfg.beta * sim
+                    S, sim, fid = self._score(new_text)
+                    phi = self._phi(S, sim, fid)
                     r += phi - self.phi
-                    self.phi, self.S, self.sim, self.text = phi, S, sim, new_text
+                    self.phi, self.S, self.sim, self.fid, self.text = phi, S, sim, fid, new_text
                     self.n_changed += 1
                     r += self.cfg.coverage_bonus
                     info = dict(event="edited")
             else:
                 info = dict(event="noop")
-            info["via"] = getattr(self.rz, "last_via", None)
         elif a == STOP:
             self.done = True
             final = self.ver.check(self.src, self.text, use_nli=True)
             if not final.ok:
                 r -= self.cfg.fail_final_penalty
                 self.st = EditState(self.g.toks)
-                self.text, self.S, self.sim = self.src, self.S0, 1.0
+                self.text, self.S, self.sim, self.fid, self.phi = self.src, self.S0, 1.0, 1.0, self.phi0
                 info = dict(event="final_reject", violations=final.violations)
         else:
             j = a - MOVE0
@@ -153,7 +176,8 @@ class SimplifyEnv:
         if self.steps >= self.max_steps and not self.done:
             self.done, r = True, r - 0.05
         self.ret = getattr(self, 'ret', 0.0) * (self.steps > 1) + r
-        self.trail.append(dict(step=self.steps, ret=round(self.ret, 4), action=("INVOKE" if a == INVOKE else "STOP" if a == STOP
+        self.trail.append(dict(S_before=S_before, S_after=self.S, verifier=verdict, realizer=via, candidate=rinfo,
+                               step=self.steps, ret=round(self.ret, 4), action=("INVOKE" if a == INVOKE else "STOP" if a == STOP
                                                          else f"MOVE->{a - MOVE0}"),
                                node=node.id, kind=node.kind, prompt=node.prompt if a == INVOKE else "",
                                reward=round(r, 4), text=self.text, **info))
@@ -173,3 +197,9 @@ def format_trail(env, with_prompts=False):
     miss = [f"{n.id}:{n.kind}" for n in nodes if n.id not in seen]
     out.append(f"never visited: {miss or 'none'} | invoked: {[i for i in range(env.g.n) if env.invoked[i]]}")
     return "\n".join(out)
+
+
+def make_env(parts, cfg=None):
+    """Build an env from default_parts(): the single place that wires scorer/encoder/verifier/realizer/fidelity."""
+    return SimplifyEnv(parts["scorer"], parts["encoder"], parts["verifier"], parts["realizer"], cfg or parts.get("cfg"),
+                       fidelity=parts.get("fidelity"), calibration=parts.get("calibration"))

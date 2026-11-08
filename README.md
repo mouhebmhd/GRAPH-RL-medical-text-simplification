@@ -9,6 +9,57 @@ python scripts/pilot.py --n 450 --iters 120                # Phase-1 pilot + kil
 python scripts/demo.py "The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain."
 ```
 
+## Round 3 (P0-P2 task list) - what was done, what was verified, what you must re-run on Med-EASi
+
+**Environment note:** the build sandbox was reset mid-session; this round was rebuilt on top of your `sipg_rl_eval.zip`. Med-EASi is not
+reachable from the sandbox, so every number below comes from the 24-pair hand-written toy fixture (`tests/fixtures`, NOT Med-EASi) or
+synthetic template sentences, and tests that guard Med-EASi behaviour run on the toy fixture unless you set `SIPG_MEDEASI_JSONL=/path/test.jsonl`.
+
+| task | status | where |
+|---|---|---|
+| P0.1 drop `Sim` from reward | done: default potential = `["S"]`; `Sim` still computed+logged; `band`, `fid_hinge`, legacy `v1` selectable | `sipg_rl/reward.py`, `env.py` (`EnvConfig.reward_version`) |
+| P0.2 number/unit normalisation | done: `50mg = 50 mg = 50 milligrams`, `4,000 = 4000`; real changes (`5 mg -> 50 mg`, `mg -> mcg`) still caught | `sipg_rl/normalize.py`, `verifier.py`, `metrics.numbers_kept` |
+| P0.3 injectors fire | done: raise on empty vocabulary / zero injections. Bug found in MY injector (decimal x10 appended a zero) and fixed | `sipg_rl/inject.py`, `scripts/run_injection.py` |
+| P1.1 baselines + hybrid | done: copy/random/invoke_all/greedy/rules/llm/hybrid/sipg(/reference); `HybridRealizer` router | `scripts/run_eval.py`, `realize.py` |
+| P1.2 diagnostics | done (8 metrics, pure functions) | `metrics.py` |
+| P1.3 CIs + Holm | done | `stats.py`, `run_eval.py` |
+| P1.4 multi-seed | done: 5 checkpoints trained (synthetic) + across-seed table | `train_seeds.py`, `run_eval.py --seeds` |
+| P2.1 risk-coverage + ECE | code done; the demo uses a 75-pair hand-written suite and shows the OFFLINE signal is unusable (AUROC 0.45) | `selective.py`, `scripts/risk_coverage.py` |
+| P2.2 audit trail | done: per (system, example) JSONL with candidate_used/rank/count, realizer, verifier, S_before/after | `trail.py`, `run_eval.py` -> `trail.jsonl` |
+| P2.3 ablations | done: verifier, nli (plumbing only offline), graph, reward | `scripts/run_ablations.py` |
+
+### Run the acceptance checks on Med-EASi
+```
+SIPG_MEDEASI_JSONL=medeasi_test.jsonl pytest tests/test_reward_ordering.py -s     # P0.1 GATE: S(ref) > S(copy), CI excludes 0. STOP if it fails.
+python scripts/run_injection.py --jsonl medeasi_test.jsonl --base source --n 500  # P0.3 / G4: swap_drug injected >= 9, caught == injected
+python scripts/train_seeds.py --jsonl medeasi_train.jsonl --seeds 0,1,2,3,4 --out-pattern sipg_policy_v3_seed{seed}.pt
+python scripts/run_eval.py --jsonl medeasi_test.jsonl --limit 0 --seeds 0,1,2,3,4 --ckpt-pattern "sipg_policy_v3_seed{seed}.pt" \
+       --fidelity bertscore --nli microsoft/deberta-large-mnli --llm-model qwen2.5:7b-instruct --compare-to greedy --out eval_out
+python scripts/run_ablations.py --ablate all --nli microsoft/deberta-large-mnli --seeds 0,1,2
+```
+Re-run your G3 (gold rejections) after P0.2: if the 28 number/dose rejections do not drop, they are real and the verifier is stricter than the annotators.
+
+### Measured here (toy / synthetic only: machinery evidence, not scientific claims)
+* Injection harness, 300 synthetic sentences, lexical gate: swap_drug 273/273 caught, dose x10 228/228, drop_negation 211/211, drop_hedge 11/11, drop_conditional 15/15, **antonym 0/90 (known blind spot, leaks 100%)**.
+* Verifier ablation (injected unsafe edits, rate 0.5): full verifier 204 injected / 0 leaked / 0.0% unsafe outputs; ablated 202 leaked / 77.2% unsafe; negation preserved 58.4%, conditionals 23.1%.
+* Five seeds, S-only reward, synthetic: PPO dR 0.368/0.392/0.386/0.390/0.376 (mean 0.382, std 0.010) vs greedy 0.388 -> **tie with greedy is inside seed noise; edits 3.0 vs 3.0, so "same S with fewer edits" is NOT shown.**
+* Graph ablation (3 seeds): flat BiGRU R 0.375 +- 0.004 vs GAT 0.382 +- 0.012 -> **the graph adds nothing on template data** (expected: independent edits). Must be re-run on Med-EASi before any graph claim.
+* Reward ablation (3 seeds): legacy `S + 0.5 Sim` -> S 0.838 +- 0.078 vs 0.918 +- 0.011, edits 2.3 vs 2.9: confirms the failure mode.
+* Offline soft fidelity: gold-vs-source F1 0.515 vs copy 1.000 on the toy fixture, and AUROC 0.45 as a confidence signal. Use BERTScore/NLI on real data.
+
+### Findings worth your attention
+1. **NLI never saw drift in sentences without a number or drug name**: the old gate ran NLI only when the source had critical spans. `FidelityVerifier(nli_scope="all")` is now the default (`"critical"` = old behaviour; `nli_mode="bidirectional"` available). Any earlier NLI-on recall numbers measured through that gate understate drift misses.
+2. **C4 (`hypertensive urgency`)**: the rule lexicon HAS the phrase and applies it. A trace that shows "condition node reached, no-op" is the enclosing `if ...` clause (deliberately never split), not the term node. If the phrase were missing, rules would no-op on the AMOD node (reproduced in `tests/test_regression_S1.py`) and the hybrid's constrained LLM fallback rescues it.
+3. **`cache_hits = 0`**: the old LLM cache key included the whole sentence + prompt. Lexical requests are now cached per span text (`OpenAICompatLLM.lexical_context_free`).
+4. Fallback% = 0 is structural while NLI is off: the edit gate and the final gate are the same lexical check. Report `rejected` (edit rollbacks) alongside `fallback%`.
+5. Under the S-only reward the policy no longer splits clauses on its own (the coverage bonus was doing that); `apply_all` still does.
+
+### Not done / lost in the reset (say if you want them rebuilt)
+A3 gold-audit triage script, lexicon miner + blocklist audit + coverage (D1/D3), clinician annotation sheets + kappa (E2), graph truncation handling (F1), glossary tier restriction/audit sheet (F2),
+`train_seeds.py --realizer hybrid` (LLM in the loop, B4a) is implemented but untested against a real model. Until then, LLM/hybrid mode is an **inference-time augmentation**: the policy was trained with the rule realizer.
+Paper sentence: *safety is measured by deterministic gates and injected hazards, not clinician adjudication; verifier recall is bounded by the injection taxonomy and is an upper bound on true recall.*
+
+
 ## Paper component -> code
 | Proposal | Module | Notes |
 |---|---|---|
@@ -66,33 +117,6 @@ the LLM in the loop would remove the need for this and has not been done.
 OpenAI-compatible server (`tests/fake_llm.py`, canned answers) - not against a real model, which was unreachable in the build sandbox.
 Expect real small models to sometimes ignore instructions or add words; the sanitiser and verifier are there for that, but
 their hit rate on real model output is unmeasured.
-
-## Model fixes (audit items A1, A2, B1-B5, C1-C4, D3, E1-wiring)
-All of this is about the *model*; nothing here depends on a dataset. Numbers below are from the synthetic template corpus, which only
-checks the machinery (templates favour greedy), so they are not scientific evidence.
-
-| Item | What changed | Where |
-|---|---|---|
-| A1 Sim | `ContentEncoder`: length-invariant, source-anchored weighted F-measure over content tokens (recall weighted 4x), concept-normalised, numbers / units / negations / hedges / conditionals / drug names carry 3x weight and multiply the score by their recall and precision. Faithful rewrite 1.00 (old 0.84), appended explanation 0.99 (old 0.76), dropped dose 0.55, dropped negation 0.76, swapped drug 0.62. Still offline: it cannot know a layman synonym outside the lexicon; for that, use an embedding/NLI model at evaluation time. | `scoring.py` |
-| A2 / B2 S | `BandSuitabilityScorer`: smooth Gaussian bands around a target (grade 6.5 default; strict above, tolerant below because critical terms are masked to 1 syllable; polysyllable share and jargon penalised only when too high). No clipped plateau, so late-stage ordering keeps a gradient; over-simplified fragments are penalised. `.fit(reference_texts)` anchors the bands to any reference distribution; `to_dict/from_dict` persist them. Saturation (S >= 0.95) on invoke-all outputs: 19% vs 45% for the old scorer. | `scoring.py` |
-| B1 | `gamma` 0.01 -> 0.03 (about 25% of the median edit gain, tested to stay in 10-60%). | `env.py`, `pilot.py` |
-| B3 | Coverage bonus is off everywhere; trainer defaults to 0. | `env.py`, `train_policy.py` |
-| B4 | `train_policy.py --realizer llm` trains against the SAME rules-first LLM realizer (persistent cache, reject penalty 0.25). Every checkpoint writes `<ckpt>.meta.json`; `SIPGRL(checkpoint=...)` warns on legacy checkpoints and on train/deploy mismatches (policy trained with rules, deployed with LLM = inference-time augmentation). | `scripts/train_policy.py`, `pipeline.py` |
-| B5 | `--seeds 0,1,2,3,4`: per-seed checkpoints, mean +- std and a t-interval across seeds. | `scripts/train_policy.py` |
-| C1 / C3 | `RoutedRealizer`: rules always first; the LLM only gets span-local lexical rewrites (long words, nominalizations, jargon adjective+noun) the rules left untouched, behind `lexical_guard` (no sentence punctuation, no new numbers, length cap). Embedded clauses (CCOMP/ACL) reach the LLM only with `allow_llm_structure=True`. Prompt now says "replace only this span, do not restructure". | `realize.py`, `llm.py` |
-| C2 | Lexicon 70 -> 127 reviewed plain-wording pairs. | `lexicon.py` |
-| C4 | Root cause was routing, not coverage: "hypertensive urgency" already had a rule, but the old LLM-first realizer sent it to the LLM, which returned it unchanged, so the rule never ran. Test: `test_lexicon_terms_never_reach_the_llm_c4`. | `realize.py` |
-| D3 | `lexicon_entry_problem` / `assert_lexicon_safe` run at import and must be called by any lexicon miner: no drug names, numbers, percentages, dose units or code-like tokens in keys or replacements. | `lexicon.py` |
-| E1 wiring | The final fallback (output := source) was structurally unreachable: the per-edit gate and the final gate ran the same lexical check, and NLI only ran on sentences with a number or drug term. Now `nli_scope="all"` checks every sentence, final rejections are reported (`final_rejected`), and `adversarial.selftest` injects 6 corruption types and counts where each is stopped (edit gate / final gate / leaked). With NLI off, semantic drift leaks 100%; with an NLI model the final fallback fires. | `verifier.py`, `adversarial.py`, `pipeline.py` |
-| F1 (model side) | Graphs now record `n_dropped` (nodes lost to the 24-node cap; clauses come first, so TERM nodes are what get truncated). | `graph.py` |
-| F3 | The LLM cache works (key = prompt + span + full sentence, so a single pass over distinct sentences cannot hit it; running `llm` then `llm_all` does). New persistent `cache_path` reuses calls across runs and seeds. | `llm.py` |
-
-Synthetic 5-seed result with the corrected reward (200 PPO iterations, `runs/v2_long.log`): PPO dR +0.4194 +- 0.0046; PPO - greedy
--0.0052 (95% CI [-0.0109, +0.0005]); edits PPO - greedy -0.125 ([-0.206, -0.044]); S PPO - greedy -0.009 ([-0.015, -0.003]); verifier
-preservation 100%. So PPO is slightly more parsimonious and slightly less readable than greedy and still not distinguishable on reward:
-gamma now makes the trade visible, but there is no demonstrated win over greedy. `sipg_policy_v2.pt` is seed 0 (declared in advance, not picked).
-Checkpoints from before this change (`sipg_policy*.pt` without `.meta.json`) were trained under the old reward and will warn.
-Tests: `tests/test_reward_fixes.py`, `test_routing.py`, `test_lexicon_safety.py`, `test_adversarial.py`, `test_meta_warnings.py`.
 
 ## Medical-term info boxes
 In the dashboard, body parts, medicines, conditions, drug classes and dosing abbreviations in the result are underlined; hover, focus

@@ -14,6 +14,7 @@ EDGE_TYPES = ["syn_down", "syn_up", "contrast", "elaboration", "condition", "cau
               "next", "prev", "self"]
 ET = {n: i for i, n in enumerate(EDGE_TYPES)}
 N_MAX = 24
+MAX_TERM_TOKENS = 5
 PROMPT_DIM = 16
 STATIC_DIM = len(KINDS) + 6 + PROMPT_DIM
 
@@ -79,7 +80,7 @@ class GraphBuilder:
         doc = sent.doc
         toks = [(t.i, t.text, t.whitespace_) for t in sent]
         nodes = self._clauses(sent) + self._terms(sent)
-        n_dropped = max(0, len(nodes) - N_MAX)       # clauses come first, so TERM nodes are what gets truncated
+        n_total = len(nodes)
         nodes = nodes[:N_MAX]
         for k, n in enumerate(nodes):
             n.id = k
@@ -93,7 +94,7 @@ class GraphBuilder:
             n.prompt = self.inst.instantiate(n, doc)
         adj = self._edges(nodes, doc)
         g = SentenceGraph(doc, sent.text, toks, nodes, adj, self._static(nodes, doc))
-        g.n_dropped = n_dropped
+        g.n_total, g.truncated = n_total, n_total - len(nodes)   # Task 25: nodes dropped by the N_MAX cap
         return g
 
     # ------------------------------------------------------------------------------------
@@ -122,7 +123,7 @@ class GraphBuilder:
         lemmas = [t.lemma_.lower() for t in sent]
         start = sent.start
         for i in range(len(words)):
-            for L in (3, 2, 1):
+            for L in range(MAX_TERM_TOKENS, 0, -1):
                 if i + L > len(words):
                     continue
                 key = " ".join(words[i:i + L])
@@ -252,3 +253,28 @@ class GraphBuilder:
             f[o + 5] = float(n.meta.get("key", "") in PLAIN_TERMS or n.meta.get("key", "") in ADJ_REL)
             f[o + 6:] = hash_vec(n.prompt.lower().split(), PROMPT_DIM, signed=True) / 8.0
         return X
+
+
+def flatten_graph(g: "SentenceGraph") -> "SentenceGraph":
+    """Graph ablation: renumber nodes in TEXT order and keep ONLY next/prev/self edges (a flat sequence). Node objects, spans and
+    prompts are unchanged, so the realizers behave identically; only the structure the policy can use is removed.
+    `start` is the index of the ROOT node (the env begins there)."""
+    import copy, dataclasses
+    order = sorted(range(g.n), key=lambda i: (g.nodes[i].anchor, i))
+    new_id = {old: k for k, old in enumerate(order)}
+    nodes = []
+    for old in order:
+        n = copy.copy(g.nodes[old])
+        n.id, n.parent = new_id[old], (new_id[n.parent] if n.parent >= 0 else -1)
+        nodes.append(n)
+    adj = -np.ones((g.n, g.n), dtype=np.int64)
+    for k in range(g.n):
+        adj[k, k] = ET["self"]
+        if k + 1 < g.n:
+            adj[k, k + 1], adj[k + 1, k] = ET["next"], ET["prev"]
+    static = np.zeros_like(g.static)
+    for old, k in new_id.items():
+        static[k] = g.static[old]
+    out = dataclasses.replace(g, nodes=nodes, adj=adj, static=static, src_vec=None)
+    out.start = new_id[0]
+    return out

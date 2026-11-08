@@ -78,3 +78,24 @@ def collate(obs_list, device="cpu"):
         t = torch.as_tensor(arr, device=device)
         out[k] = t
     return out
+
+
+class FlatSequencePolicy(SIPGPolicy):
+    """Graph ablation: same heads and interface as SIPGPolicy but the encoder is a BiGRU over the nodes in TEXT order
+    (use with flatten_graph) instead of graph attention over syntactic/discourse edges."""
+    def __init__(self, hidden=64, layers=1):
+        super().__init__(hidden=hidden, heads=4, layers=1)
+        self.gat = nn.ModuleList()                       # no graph layers
+        self.rnn = nn.GRU(hidden, hidden // 2, num_layers=layers, batch_first=True, bidirectional=True)
+
+    def forward(self, b):
+        x, nmask, glob, amask, cur = (b[k] for k in ("x", "nmask", "glob", "amask", "cur"))
+        h, _ = self.rnn(self.inp(x))
+        h = h * nmask.unsqueeze(-1)
+        B = h.shape[0]
+        h_cur = h[torch.arange(B), cur]
+        pooled = h.sum(1) / nmask.sum(1, keepdim=True).clamp(min=1)
+        s = self.state(torch.cat([h_cur, pooled, self.glob(glob)], -1))
+        move = torch.einsum("bd,bnd->bn", self.q(s), self.k(h)) / math.sqrt(self.hidden)
+        logits = torch.cat([self.head_inv(s), self.head_stop(s), move], -1).masked_fill(~amask, NEG)
+        return logits, self.value(s).squeeze(-1)

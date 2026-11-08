@@ -1,0 +1,30 @@
+A. Telescoping identity: sum of step rewards == R(final) - R(source) (clean episodes)
+   144 episodes, max |error| = 5.00e-01  -> BROKEN
+
+B. Saturation of S (flat reward = no gradient)
+   no-op (source)   mean S 0.410 | share S>=0.95: 0% | share S>=0.999: 0%
+   invoke-all       mean S 0.923 | share S>=0.95: 67% | share S>=0.999: 19%
+
+C. Reward hacking: can degenerate text out-score a faithful rewrite?
+   candidate               S    Sim R(a=1,b=.5) verifier
+   source              0.700  1.000       1.200 ok
+   good rewrite        1.000  0.822       1.411 ok
+   empty               1.000  0.000       1.000 REJECT: number/dose lost or altered: 10 mg
+   'No.'               1.000  0.000       1.000 REJECT: number/dose lost or altered: 10 mg
+   generic             0.800  0.000       0.800 REJECT: number/dose lost or altered: 10 mg
+   dose dropped        1.000  0.691       1.345 REJECT: number/dose lost or altered: 10 mg
+   negation flipped    1.000  0.706       1.353 REJECT: negation cue dropped
+   dose x10            1.000  0.672       1.336 REJECT: number/dose lost or altered: 10 mg
+   drug swapped        1.000  0.672       1.336 REJECT: critical term lost/substituted: lisinopril
+
+D. Order dependence: relative-clause split before vs after rewriting the jargon adjective
+   RELCL only         total reward -0.085 | S 0.584 sim 0.840 | The hypertensive patient reports no chest pain. The hypertensive patient takes lisinopril 10 mg BID.
+   AMOD then RELCL    total reward +0.093 | S 0.792 sim 0.792 | The patient who has high blood pressure reports no chest pain. The patient takes lisinopril 10 mg BID.
+   RELCL then AMOD    total reward +0.093 | S 0.792 sim 0.792 | The patient who has high blood pressure reports no chest pain. The patient takes lisinopril 10 mg BID.
+
+E. Cost vs gain scale (is gamma doing any work?)
+   median positive S-gain per edit 0.115 vs gamma 0.03 (ratio 4x) -> cost only breaks ties unless gain < gamma
+   share of changing edits that LOWER S immediately: 17%
+
+F. Does sentence splitting alone inflate S? (same content, different layout)
+   joined S=1.000 | split S=1.000 | Sim(joined,split)=0.746

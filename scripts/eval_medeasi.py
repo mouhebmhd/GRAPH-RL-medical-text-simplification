@@ -50,7 +50,7 @@ def load_rows(a, split=None):
 def build(a, names):
     import torch
     from sipg_rl.pipeline import SIPGRL, default_parts
-    from sipg_rl.realize import RoutedRealizer, RuleRealizer
+    from sipg_rl.realize import CallableRealizer, RuleRealizer
     from sipg_rl.llm import OpenAICompatLLM
     ck = a.ckpt if a.ckpt and os.path.exists(a.ckpt) else None
     if a.ckpt and not ck:
@@ -67,7 +67,7 @@ def build(a, names):
         h = llm.health()
         if not h["reachable"] or h["model_available"] is False:
             sys.exit(f"LLM not usable: {h}")
-        parts = default_parts(nlp=nlp, realizer=RoutedRealizer(llm, RuleRealizer()))
+        parts = default_parts(nlp=nlp, realizer=CallableRealizer(llm, RuleRealizer()))
         m = SIPGRL(parts, policy=base.policy, sweep=True)
         systems["llm"] = (m, False); systems["llm_all"] = (m, True)
     return systems, llm, base
@@ -141,7 +141,7 @@ def main():
     ap.add_argument("--shuffle", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--systems", default="copy,rules,llm,reference")
-    ap.add_argument("--ckpt", default="sipg_policy_v2.pt")
+    ap.add_argument("--ckpt", default="sipg_policy_v3.pt")
     ap.add_argument("--llm-url", default="http://localhost:11434/v1")
     ap.add_argument("--llm-model", default="qwen2.5:7b-instruct")
     ap.add_argument("--llm-key", default=None)

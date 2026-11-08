@@ -1,0 +1,7 @@
+500 sentences | current cap N_MAX=24
+clipped sentences: 0 = 0.00% | mean nodes 4.4 | p95 7 | max 7
+nodes dropped in clipped sentences: none
+  cap  24: would clip  0.00% of sentences
+  cap  32: would clip  0.00% of sentences
+  cap  40: would clip  0.00% of sentences
+  cap  64: would clip  0.00% of sentences

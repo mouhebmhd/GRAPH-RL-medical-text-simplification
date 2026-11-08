@@ -1,0 +1,7 @@
+TABLE 2 (200 sentences; every cell scored by checks.check_all; preservation = % of sentences containing the category that keep it)
+
+cell                      unsafe       number     negation        hedge  conditional         drug       abbrev  S gain  edits   rej  fallb
+strong realizer + verifier ON    0.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%   0.224   1.74  2.11   0.0%
+strong realizer + verifier OFF   89.5%        42.4%        46.7%        10.0%        37.5%        37.3%       100.0%   0.532   3.75  0.00   0.0%
+
+NOTE: 'strong realizer' here is an OFFLINE STAND-IN that injects hazards (rate 0.50); it measures the gate, not a real LLM.

@@ -1,0 +1,35 @@
+
+=================================== ERRORS ====================================
+________________ ERROR collecting tests/test_meta_warnings.py _________________
+ImportError while importing test module 'D:\GRAPH-RL-medical-text-simplification\tests\test_meta_warnings.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python310\lib\importlib\__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests\test_meta_warnings.py:6: in <module>
+    from sipg_rl.realize import RoutedRealizer, RuleRealizer
+E   ImportError: cannot import name 'RoutedRealizer' from 'sipg_rl.realize' (D:\GRAPH-RL-medical-text-simplification\tests\..\sipg_rl\realize.py)
+_________________ ERROR collecting tests/test_reward_fixes.py _________________
+ImportError while importing test module 'D:\GRAPH-RL-medical-text-simplification\tests\test_reward_fixes.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python310\lib\importlib\__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests\test_reward_fixes.py:7: in <module>
+    from sipg_rl.scoring import ContentEncoder, ConceptEncoder, BandSuitabilityScorer, FeatureSuitabilityScorer
+E   ImportError: cannot import name 'ContentEncoder' from 'sipg_rl.scoring' (D:\GRAPH-RL-medical-text-simplification\tests\..\sipg_rl\scoring.py)
+___________________ ERROR collecting tests/test_routing.py ____________________
+ImportError while importing test module 'D:\GRAPH-RL-medical-text-simplification\tests\test_routing.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Python310\lib\importlib\__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests\test_routing.py:5: in <module>
+    from sipg_rl.realize import RoutedRealizer, RuleRealizer, lexical_guard
+E   ImportError: cannot import name 'RoutedRealizer' from 'sipg_rl.realize' (D:\GRAPH-RL-medical-text-simplification\tests\..\sipg_rl\realize.py)
+=========================== short test summary info ===========================
+ERROR tests/test_meta_warnings.py
+ERROR tests/test_reward_fixes.py
+ERROR tests/test_routing.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 3 errors during collection !!!!!!!!!!!!!!!!!!!
+3 errors in 5.13s

@@ -34,7 +34,7 @@ def diag(policy, graphs):
         if c: cond.append(np.mean([env.visited[j] for j in c]))
         rl = [n.id for n in g.nodes if n.kind == "RELCL"]
         if rl: relcl.append(np.mean([env.invoked[j] for j in rl]))
-        R.append(env.final_reward - (BASE.alpha * env.S0 + BASE.beta)); S.append(env.S); sim.append(env.sim)
+        R.append(env.final_reward - env.phi0); S.append(env.S); sim.append(env.sim)
     return dict(dR=np.mean(R), S=np.mean(S), sim=np.mean(sim), coverage=np.mean(cov), cond_visit=np.mean(cond),
                 relcl_fired=np.mean(relcl), n_cond=len(cond))
 

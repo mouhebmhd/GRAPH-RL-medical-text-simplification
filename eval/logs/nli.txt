@@ -1,0 +1,7 @@
+64 antonym-drift outputs injected (e.g. 'The patient, who has chronic high cholesterol, should initia' -> 'The patient, who has chronic low cholesterol, should initiat')
+
+gate                                          drift caught   leaked
+edit gate (lexical)  / NLI off                        0.0%   100.0%
+final gate (lexical) / NLI off                        0.0%   100.0%
+
+NLI-ON rows skipped (no --nli model). The NLI-off rows are the measured baseline: the lexical gate cannot see antonym drift.

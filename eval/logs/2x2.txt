@@ -1,0 +1,9 @@
+2x2 on 200 sentences
+
+cell                      unsafe       number     negation        hedge  conditional         drug       abbrev  S gain  edits   rej  fallb
+strong|verifier_on          0.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%   0.224   1.74  2.11   0.0%
+strong|verifier_off        89.5%        42.4%        46.7%        10.0%        37.5%        37.3%       100.0%   0.532   3.75  0.00   0.0%
+weak|verifier_on            0.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%   0.396   2.21  0.00   0.0%
+weak|verifier_off           0.0%       100.0%       100.0%       100.0%       100.0%       100.0%       100.0%   0.396   2.21  0.00   0.0%
+
+wrote eval/2x2.json

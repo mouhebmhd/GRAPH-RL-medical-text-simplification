@@ -1,0 +1,53 @@
+{
+ "created": "2026-11-07T18:13:36",
+ "git_sha": "a5387c3e064aebb21958297e6db0f2333d5f70eb",
+ "python": "3.10.5",
+ "libs": {
+  "torch": "2.14.1+cpu",
+  "spacy": "3.8.16",
+  "numpy": "1.26.4"
+ },
+ "env_config": {
+  "reward_version": "s_only",
+  "reward_components": [
+   "S"
+  ],
+  "reward_weights": {
+   "S": 1.0
+  },
+  "gamma": 0.03,
+  "move_cost": 0.005,
+  "reject_penalty": 0.1,
+  "coverage_bonus": 0.0,
+  "fail_final_penalty": 1.0,
+  "max_steps_factor": 3,
+  "illegal_penalty": 0.05
+ },
+ "env_config_sha256": "a97c26de8c7ab75719a6438903d511581256529ad983de87c2e2467c304d394b",
+ "seeds": [
+  0
+ ],
+ "llm_model": null,
+ "checkpoints": {
+  "sipg_policy.pt": "49fae3b15057806ce87de06bb0e60cc56782ec275274c2cfca695f40fa257175",
+  "sipg_policy_bonus.pt": "b851f50621e2a4fc44f1685c5be82ed5faf12a2c3566102870043d8a66305054",
+  "sipg_policy_v2.pt": "f3a8c53e617bda46db3b5f5575e5601b612e8c08c7278195e1687a643c53964a",
+  "sipg_policy_v2_llm.pt": "4d41001acb7994fe4fef49c1a4f41c8d325a4e3d8a58dfb9aa82cfa697b3828c",
+  "sipg_policy_v3.pt": "3b9ffabf09fe232988a5edd8e9ddfe664f21ecdd72f2beff53e63ea6b2a19e23",
+  "sipg_policy_v3_seed0.pt": "3b9ffabf09fe232988a5edd8e9ddfe664f21ecdd72f2beff53e63ea6b2a19e23",
+  "sipg_policy_v3_seed1.pt": "00dd9e5dd02a7cf9e23e7979c630cb47d4a774e62b680516e4716d25f7933425",
+  "sipg_policy_v3_seed2.pt": "cad07aff7337d91184e04d5143901f48fbe527ef22ea194eac062798d0fc7ee8",
+  "sipg_policy_v3_seed3.pt": "75824e8105e8f5256851315acc0236034e9ad01846f95bf63c4255d255f4bd86",
+  "sipg_policy_v3_seed4.pt": "504e60477f1036befd2cadd84cc82ff26ed8446ad6a0359d166be4e1973b1fab"
+ },
+ "reward_calibration_sha256": null,
+ "prereg_sha256": null,
+ "llm_cache_entries": 0,
+ "outputs": {
+  "2x2.json": "8da5d77a09fcd3dc14b45c5b040be9a437f4137de8a2d340367b9d03754901ee",
+  "manifest.json": "84886d168e49f14d072038b5702c32c078f8e86b32b0e170daa8599cebb40b7d",
+  "summary.md": "27db625235f229dd651b60c584df41a3d0dbb64a859c0de425fdbb3fc824795c",
+  "table2.json": "e6c91c2897e91b97252fb607fea1931283bbf7719466001b1b0f3f5166b785c4",
+  "table2.md": "ab0b9728e8af34ee4330dd08bd9a30a278db4d13a9a2049a56f565a187ededf0"
+ }
+}

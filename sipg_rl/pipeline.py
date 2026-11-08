@@ -1,27 +1,31 @@
 """End-to-end SIPG-RL: text -> sentence graphs -> learned traversal -> verified, audited output."""
 from __future__ import annotations
 from dataclasses import dataclass, field
-import dataclasses, json, os, warnings
+import dataclasses
 import spacy, torch
-from .env import SimplifyEnv, EnvConfig
+from .env import SimplifyEnv, EnvConfig, make_env
 from .graph import GraphBuilder, EDGE_TYPES
 from .prompts import PromptInstantiator
 from .realize import RuleRealizer
-from .scoring import FeatureSuitabilityScorer, ConceptEncoder, BandSuitabilityScorer, ContentEncoder
+from .scoring import FeatureSuitabilityScorer, ConceptEncoder
 from .verifier import FidelityVerifier
 from .model import SIPGPolicy
-from .baselines import LearnedPolicy, LearnedThenSweep
+from .baselines import (LearnedPolicy, LearnedThenSweep, RandomPolicy, GreedyReadabilityPolicy, InvokeAllPolicy)
 from .glossary import collect as collect_terms
 
 
-def default_parts(target_grade=6.5, cfg=None, nli=None, realizer=None, scorer=None, encoder=None,
-                  instantiator=None, nlp=None):
+def default_parts(target_grade=6.0, cfg=None, nli=None, realizer=None, scorer=None, encoder=None,
+                  instantiator=None, nlp=None, fidelity=None, calibration=None, verifier_enabled=True):
     """Assemble all pluggable components (override any with real models)."""
     nlp = nlp or spacy.load("en_core_web_sm")
     inst = instantiator or PromptInstantiator()
-    return dict(nlp=nlp, builder=GraphBuilder(nlp, inst), scorer=scorer or BandSuitabilityScorer(target_grade),
-                encoder=encoder or ContentEncoder(), verifier=FidelityVerifier(nli=nli),
-                realizer=realizer or RuleRealizer(), cfg=cfg or EnvConfig())
+    _rz = realizer or RuleRealizer()
+    if isinstance(_rz, RuleRealizer) and _rz.scorer is None:
+        _rz.scorer = scorer or FeatureSuitabilityScorer(target_grade)
+    return dict(nlp=nlp, builder=GraphBuilder(nlp, inst), scorer=scorer or FeatureSuitabilityScorer(target_grade),
+                encoder=encoder or ConceptEncoder(), verifier=FidelityVerifier(nli=nli, enabled=verifier_enabled),
+                realizer=_rz, cfg=cfg or EnvConfig(),
+                fidelity=fidelity, calibration=calibration)
 
 
 OP_LABELS = {
@@ -60,33 +64,13 @@ class SimplifyResult:
 
 
 class SIPGRL:
-    def __init__(self, parts=None, policy=None, checkpoint=None, sweep=False):
-        self.sweep = sweep
+    def __init__(self, parts=None, policy=None, checkpoint=None, sweep=False, traversal="learned", seed=0):
+        self.sweep, self.traversal, self.seed = sweep, traversal, seed
         self.parts = parts or default_parts()
         self.policy = policy or SIPGPolicy()
-        self.meta = None
         if checkpoint:
             self.policy.load_state_dict(torch.load(checkpoint, map_location="cpu"))
-            self.meta = self._check_meta(checkpoint)
         self.policy.eval()
-
-    def _check_meta(self, checkpoint):
-        """B4b: make train/deploy mismatches visible instead of silently confounding results."""
-        mp = checkpoint + ".meta.json"
-        if not os.path.exists(mp):
-            warnings.warn(f"{checkpoint} has no .meta.json: it was trained under the LEGACY reward (old Sim/S, gamma<=0.01, "
-                          "possibly a coverage bonus). Retrain with scripts/train_policy.py before drawing conclusions.")
-            return None
-        meta = json.load(open(mp))
-        rz = self.parts["realizer"]
-        deployed = "llm" if hasattr(rz, "llm") else "rules"
-        if meta.get("realizer_in_loop") != deployed:
-            warnings.warn(f"policy was trained with the '{meta.get('realizer_in_loop')}' realizer but is deployed with '{deployed}': "
-                          "treat LLM mode as an inference-time augmentation, not something the policy optimised for.")
-        for key, now in (("scorer", type(self.parts["scorer"]).__name__), ("encoder", type(self.parts["encoder"]).__name__)):
-            if meta.get(key) != now:
-                warnings.warn(f"policy was trained with {key}={meta.get(key)} but is deployed with {now}.")
-        return meta
 
     def save(self, path):
         torch.save(self.policy.state_dict(), path)
@@ -100,23 +84,24 @@ class SIPGRL:
             if not sent.text.strip():
                 continue
             g = p["builder"].build(sent)
-            cfg = dataclasses.replace(p["cfg"], max_steps_factor=6) if apply_all else p["cfg"]
-            env = SimplifyEnv(p["scorer"], p["encoder"], p["verifier"], p["realizer"], cfg)
-            base = LearnedPolicy(self.policy)
-            pol = (LearnedThenSweep(base, kinds=None) if apply_all
-                   else LearnedThenSweep(base) if self.sweep else base)
+            wide = apply_all or self.traversal == "invoke_all"
+            cfg = dataclasses.replace(p["cfg"], max_steps_factor=6) if wide else p["cfg"]
+            env = make_env(p, cfg)
+            if self.traversal == "random":
+                pol = RandomPolicy(self.seed + len(records))
+            elif self.traversal == "greedy":
+                pol = GreedyReadabilityPolicy()
+            elif self.traversal == "invoke_all":
+                pol = InvokeAllPolicy()
+            else:
+                base = LearnedPolicy(self.policy)
+                pol = (LearnedThenSweep(base, kinds=None) if apply_all
+                       else LearnedThenSweep(base) if self.sweep else base)
             env.reset(g); pol.reset()
             while not env.done:
                 env.step(pol.act(env))
                 env.trail[-1]["driver"] = getattr(pol, "last_driver", "policy")
             final = p["verifier"].check(env.src, env.text, use_nli=True)
-            # The env already reverts to the source when ITS final check fails (event "final_reject"), after which this
-            # re-check sees the source and passes. Count that revert, or the fallback is invisible in every report.
-            env_rej = [t for t in env.trail if t.get("event") == "final_reject"]
-            fell_back = bool(env_rej) or not final.ok
-            f_viol = env_rej[0]["violations"] if env_rej else final.violations
-            # the env already reverts to the source on a failed final check (event 'final_reject'); count both paths
-            fell_back = (not final.ok) or any(t.get("event") == "final_reject" for t in env.trail)
             out = env.text if final.ok else env.src       # hard safety fallback: never emit unverified text
             outs.append(out)
             nodes, edges = graph_json(g)
@@ -124,7 +109,8 @@ class SIPGRL:
             for t in env.trail:
                 st = dict(step=t["step"], action=t["action"], at=t["node"], kind=t["kind"], event=t.get("event", ""),
                           reward=t["reward"], ret=t["ret"], before=prev, after=t["text"], prompt=t["prompt"],
-                          driver=t.get("driver", "policy"))
+                          driver=t.get("driver", "policy"), S_before=t.get("S_before"), S_after=t.get("S_after"),
+                          verifier=t.get("verifier"), realizer=t.get("realizer"), candidate=t.get("candidate"))
                 if t["action"].startswith("MOVE"):
                     st["to"] = int(t["action"].split("->")[1])
                 steps.append(st)
@@ -132,16 +118,18 @@ class SIPGRL:
                     base = dict(step=t["step"], node=t["node"], kind=t["kind"], label=OP_LABELS.get(t["kind"], t["kind"]),
                                 span=nodes[t["node"]]["text"], prompt=t["prompt"], reward=t["reward"],
                                 driver=t.get("driver", "policy"),
-                                via=t.get("via") or ("llm" if getattr(p["realizer"], "handles", lambda k: False)(t["kind"]) else "rules"),
+                                via=t.get("realizer") or ("llm" if getattr(p["realizer"], "handles", lambda k: False)(t["kind"]) else "rules"),
+                                candidate=t.get("candidate"), S_before=t.get("S_before"), S_after=t.get("S_after"), verifier=t.get("verifier"),
                                 before=prev, after=t["text"])
                     ev = t.get("event")
                     (ops if ev == "edited" else rejected if ev == "rejected" else skipped).append(
                         {**base, "violations": t.get("violations", [])})
                 prev = t["text"]
             records.append(dict(graph=dict(nodes=nodes, edges=edges), steps=steps, operations=ops,
-                                skipped=skipped, rejected=rejected, final_rejected=fell_back,
-                                n_moves=env.n_move, n_invokes=env.n_inv, n_dropped=getattr(g, "n_dropped", 0), source=env.src, output=out, verified=not fell_back, violations=f_viol,
-                                S_before=env.S0, S_after=env.S if not fell_back else env.S0, sim=env.sim,
+                                skipped=skipped, rejected=rejected, final_rejected=not final.ok,
+                                final_verdict="pass" if final.ok else "fallback", fallback=not final.ok,
+                                n_moves=env.n_move, n_invokes=env.n_inv, source=env.src, output=out, verified=final.ok, violations=final.violations,
+                                S_before=env.S0, S_after=env.S if final.ok else env.S0, sim=env.sim,
                                 trail=[t for t in env.trail if t["action"] == "INVOKE"]))
         text_out = " ".join(outs)
         return SimplifyResult(text_out, records, collect_terms(text_out))

@@ -1,6 +1,7 @@
 """Executes an instantiated prompt on a node. `RuleRealizer` is a deterministic stand-in for the small
 instruction model so the whole loop runs offline; `CallableRealizer` plugs in any LLM/T5."""
 from __future__ import annotations
+from . import lexicon as lexicon_mod
 from .lexicon import PLAIN_TERMS, ADJ_REL, PERSON_NOUNS
 from .editstate import EditState, Extra
 
@@ -15,16 +16,33 @@ class Realizer:
 
 
 class RuleRealizer(Realizer):
+    scorer = None        # optional: S(text) -> float, enables S-ranked choice among several candidates (Task 11)
+    last_via = None
+    last_info = None     # {candidate_used, candidate_rank, candidate_count, n_candidates, tier} for lexical edits
+
     def apply(self, graph, node, st):
+        self.last_via = self.last_info = None
         fn = getattr(self, "_" + node.kind.lower(), None)
-        return bool(fn and fn(graph, node, st))
+        ok = bool(fn and fn(graph, node, st))
+        if ok:
+            self.last_via = "rules"
+        return ok
 
     # -- term-level ---------------------------------------------------------------------
     def _lex(self, g, node, st):
         key = node.meta["key"]
         if key not in PLAIN_TERMS or any(i in st.edited for i in node.ids):
             return False
-        st.replace_span(node.ids, PLAIN_TERMS[key][0])
+        cands = lexicon_mod.CANDIDATES.get(key) or [(PLAIN_TERMS[key][0], None)]
+        chosen, rank, n, count = cands[0][0], 1, len(cands), cands[0][1]
+        if n > 1 and self.scorer is not None:
+            from .select import select_candidate
+            def S_of(w):
+                snap = st.snapshot(); st.replace_span(node.ids, w); sc = self.scorer(st.render()); st.restore(snap); return sc
+            chosen, rank, n, count = select_candidate(cands, S_of)
+        st.replace_span(node.ids, chosen)
+        self.last_info = dict(candidate_used=chosen, candidate_rank=rank, candidate_count=count, n_candidates=n,
+                              tier=2 if key in getattr(lexicon_mod, "TIER2", ()) else 1)
         return True
 
     _nom = _lex
@@ -42,6 +60,7 @@ class RuleRealizer(Realizer):
         else:
             st.insert_after(head.i, f"who {verb} {phrase}")
         st.delete(adj.i)
+        self.last_info = dict(candidate_used=phrase, candidate_rank=1, candidate_count=None, n_candidates=1, tier=1)
         return True
 
     # -- clause-level -------------------------------------------------------------------
@@ -150,78 +169,116 @@ class CallableRealizer(Realizer):
         return self.fallback.apply(graph, node, st) if self.fallback else False
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# Rules-first routing (audit C1/C3/C4).  Division of labour, stated explicitly:
-#   * RULES  : every node they can change (lexicon terms, adjective->clause, clause splits). Deterministic, auditable.
-#   * LLM    : only span-LOCAL lexical replacement for nodes the rules left untouched (unknown long words, nominalizations,
-#              jargon adjective+noun), behind a structural guard. It never splits, merges or restructures a sentence.
-#   * CCOMP/ACL (embedded clauses) go to the LLM only if allow_llm_structure=True (an explicit, labelled opt-in).
-# The old LLM-first CallableRealizer sent lexicon terms (e.g. "hypertensive urgency") to the LLM, so a rule that exists
-# never ran whenever the model returned the term unchanged; that was the C4 failure.
-# ---------------------------------------------------------------------------------------------------------------
-import math
-import re
-from collections import Counter
+import re as _re
 
-LEXICAL_LLM_KINDS = ("NOM", "CPLX", "AMOD", "LEX")
-STRUCTURAL_LLM_KINDS = ("CCOMP", "ACL")
-_SENT_PUNCT = re.compile(r"[.!?;:\n]")
-_DIGIT = re.compile(r"\d")
+LEXICAL_KINDS = ("LEX", "NOM", "AMOD")
+SPLIT_KINDS = ("RELCL", "CONJ_CL", "ADVCL")
+_CONTENT = lambda t: {w for w in _re.findall(r"[a-z]+", t.lower()) if len(w) > 3}
 
 
-def lexical_guard(before: str, after: str) -> bool:
-    """True iff `after` is an acceptable span-local lexical replacement for `before`."""
-    b, a = before.strip(), after.strip()
-    if not a or a == b:
-        return False
-    if _SENT_PUNCT.search(a) and not _SENT_PUNCT.search(b):      # would introduce a sentence boundary / list
-        return False
-    if _DIGIT.search(a) and not _DIGIT.search(b):                # no new numbers
-        return False
-    nb, na = len(b.split()), len(a.split())
-    if na > max(3, math.ceil(2.5 * nb) + 1):                       # explanation or restructuring, not a replacement
-        return False
-    return True
+class HybridRealizer(Realizer):
+    """P1.1 / C3 - split responsibilities explicitly.
+      * RULES do lexical replacement (deterministic, auditable) for every LEX/NOM/AMOD node that has a candidate, and
+        clause splitting wherever the rule splitter applies.
+      * The LLM is a CONSTRAINED fallback only where the rules cannot act: (a) a lexical swap (<= max_span_words words,
+        <= max_growth extra words, no new digits, no sentence punctuation) for CPLX / uncovered terms, (b) a clause split
+        that must keep >= min_keep of the original content words (re-use words; no paraphrase).
+    Unlike `CallableRealizer` it never rewrites whole clauses freely, which is what drove deletions to 72% and SARI below copy.
+    `last_via` ('rules'|'llm') and `last_info` are read by the env for the audit trail."""
 
-
-class RoutedRealizer(Realizer):
-    def __init__(self, llm, rules: Realizer | None = None, allow_llm_structure: bool = False):
-        self.llm, self.rules, self.allow_llm_structure = llm, rules or RuleRealizer(), allow_llm_structure
+    def __init__(self, llm, rules=None, lexical_llm=True, structural_llm=True, max_span_words=4, max_growth=3, min_keep=0.7):
+        self.llm, self.rules = llm, rules or RuleRealizer()
+        self.lexical_llm, self.structural_llm = lexical_llm, structural_llm
+        self.max_span_words, self.max_growth, self.min_keep = max_span_words, max_growth, min_keep
+        self.last_via = self.last_info = None
         try:
-            self._ctx = len(inspect.signature(llm).parameters) >= 3
+            n = len(inspect.signature(llm).parameters)
         except (TypeError, ValueError):
-            self._ctx = False
-        self.last_via = None
-        self.stats = Counter()
+            n = 2
+        self._argc = n
 
-    @property
-    def llm_kinds(self):
-        return LEXICAL_LLM_KINDS + (STRUCTURAL_LLM_KINDS if self.allow_llm_structure else ())
+    @staticmethod
+    def handles(kind):                       # which node kinds MAY be served by the LLM (for UI tags)
+        return kind in ("CPLX", "LEX", "NOM", "AMOD") + SPLIT_KINDS
 
-    def handles(self, kind: str) -> bool:
-        return kind in self.llm_kinds
+    def candidates(self, node):
+        key = node.meta.get("key")
+        if node.kind in ("LEX", "NOM") and key in PLAIN_TERMS:
+            return [(PLAIN_TERMS[key][0], None)]
+        if node.kind == "AMOD" and key in ADJ_REL:
+            return [(ADJ_REL[key][0], None)]
+        return []
 
-    def _ask(self, prompt, text, st):
-        return self.llm(prompt, text, st.render()) if self._ctx else self.llm(prompt, text)
+    def _ask(self, prompt, text, st, mode):
+        if self._argc >= 4:
+            return self.llm(prompt, text, st.render(), mode)
+        return self.llm(prompt, text, st.render()) if self._argc == 3 else self.llm(prompt, text)
 
     def apply(self, graph, node, st):
-        self.last_via = None
-        if self.rules.apply(graph, node, st):
-            self.last_via = "rules"; self.stats["rules"] += 1
-            return True
-        if node.kind not in self.llm_kinds or any(i in st.edited for i in node.ids):
+        self.last_via = self.last_info = None
+        k = node.kind
+        if k in LEXICAL_KINDS + ("CPLX",) and any(i in st.edited for i in node.ids):
             return False
+        if (k in LEXICAL_KINDS and self.candidates(node)) or k in SPLIT_KINDS:       # the router: rules first
+            if self.rules.apply(graph, node, st):
+                self.last_via, self.last_info = "rules", self.rules.last_info
+                return True
+        if k in LEXICAL_KINDS + ("CPLX",) and self.lexical_llm:
+            return self._llm_lexical(graph, node, st)
+        if k in SPLIT_KINDS and self.structural_llm:
+            return self._llm_split(graph, node, st)
+        return False
+
+    def _llm_lexical(self, g, node, st):
         ids = node.meta.get("np_ids", node.ids) if node.kind == "AMOD" else node.ids
         if any(i in st.edited or i in st.moved for i in ids):
             return False
-        before = st.render_ids(ids)
-        new = (self._ask(node.prompt, before, st) or "").strip()
-        if not new or new == before.strip():
-            self.stats["llm_noop"] += 1
+        before = st.render_ids(ids).strip()
+        if not before or len(before.split()) > self.max_span_words:
             return False
-        if not lexical_guard(before, new):
-            self.last_via = "llm-guard"; self.stats["llm_guard_rejected"] += 1
+        new = (self._ask(node.prompt, before, st, "lexical") or "").strip()
+        from .sanitize import accept_span_rewrite
+        ok, _why = accept_span_rewrite(before, new)
+        if not ok or len(new.split()) > len(before.split()) + self.max_growth:
             return False
         st.replace_span(ids, new)
-        self.last_via = "llm"; self.stats["llm"] += 1
+        self.last_via = "llm"
+        self.last_info = dict(candidate_used=new, candidate_rank=None, candidate_count=None, n_candidates=0, tier=None)
+        return True
+
+    def _llm_split(self, g, node, st):
+        if node.relation == "condition":          # a condition must stay attached to what it conditions
+            return False
+        ids = [i for i in node.ids if i not in st.moved and i not in st.edited]
+        while ids and g.doc[ids[-1]].is_punct:
+            ids.pop()
+        if len(ids) != len([i for i in node.ids if not g.doc[i].is_punct]) or not 6 <= len(ids) <= 40:
+            return False
+        before = st.render_ids(ids).strip()
+        new = (self._ask(node.prompt, before, st, "clause") or "").strip()
+        a, b = _CONTENT(before), _CONTENT(new)
+        ok = (new and a and len(a & b) / len(a) >= self.min_keep and _re.search(r"[.!?]\s+\S", new)
+              and not (set(_re.findall(r"\d+", new)) - set(_re.findall(r"\d+", before))))
+        if not ok:
+            return False
+        st.replace_span(ids, new.rstrip(". "))
+        self.last_via = "llm"
+        self.last_info = dict(candidate_used=None, candidate_rank=None, candidate_count=None, n_candidates=0, tier=None)
+        return True
+
+
+class CopyLexiconRealizer(Realizer):
+    """Task 4 - WEAK realizer: applies only the top-1 lexicon substitution for LEX / NOM nodes, nothing else (no clause splits,
+    no AMOD, no LLM). Safe by construction apart from lexicon content; used as the weak arm of the 2x2 design."""
+    last_via, last_info = None, None
+
+    def apply(self, graph, node, st):
+        self.last_via = self.last_info = None
+        key = node.meta.get("key")
+        if node.kind not in ("LEX", "NOM") or key not in PLAIN_TERMS or any(i in st.edited for i in node.ids):
+            return False
+        cands = lexicon_mod.CANDIDATES.get(key) or [(PLAIN_TERMS[key][0], None)]
+        st.replace_span(node.ids, cands[0][0])
+        self.last_via = "rules"
+        self.last_info = dict(candidate_used=cands[0][0], candidate_rank=1, candidate_count=cands[0][1], n_candidates=len(cands), tier=2 if key in lexicon_mod.TIER2 else 1)
         return True

@@ -1,0 +1,9 @@
+75 records (45 wrong / 30 right); fit on 37, evaluated on 38 (error rate if accept all: 60.5%)
+
+signal                                             AURC  AUROC    ECE   risk@cov 0.5 / 0.8 / 1.0
+combined (fid)                                    0.605  0.451  0.054    63.2% /  66.7% /  60.5%
+fidelity to source alone (soft)                   0.605  0.451  0.459    63.2% /  66.7% /  60.5%
+
+figure: results/risk_coverage_DEMO.png
+
+DEMO ONLY: 75 hand-written pairs, 'fid' from the offline SoftTokenFidelity, no decoder log-prob (rule realizer). It validates the code path, not the signal.
