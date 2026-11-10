@@ -1,0 +1,58 @@
+# Adversarial leaks (corruption reached the output)
+
+- [NLI off] **drop_number**
+  - source: The carbocation intermediate is formed in the reaction 's rate determining step is an sp2 hybridized carbon with trigonal planar molecular geometry.
+  - output: The carbocation intermediate is formed in the reaction 's rate determining step is an sphybridized carbon with trigonal planar molecular geometry.
+  - NLI: None
+- [NLI off] **drop_number**
+  - source: In adults, BMI, defined as weight (kg) divided by the square of the height (m2), is used to screen for overweight or obesity (see table Body Mass Index (BMI)): Overweight = 25 to 29.9 kg/m2; Obesity = 30 kg/m2.
+  - output: In adults, BMI, defined as weight (kg) divided by the square of the height (m), is used to screen for overweight or obesity (see table Body Mass Index (BMI)). Overweight = 25 to 29.9 kg/m2; Obesity = 30 kg/m2.
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: Frequency, urgency, and nocturia are due to incomplete emptying and rapid refilling of the bladder. Decreased size and force of the urinary stream cause hesitancy and intermittency. Pain and dysuria are usually not present. Sensations of incomplete emptying, terminal dribbling, overflow incontinence, or complete urinary retention may ensue.
+  - output: Frequency, urgency, and nocturia are due to incomplete emptying and rapid refilling of the bladder. Increased size and force of the urinary stream cause hesitancy and intermittency. Pain and dysuria are usually not absent. Sensations of incomplete emptying, terminal dribbling, overflow incontinence, or complete urinary retention may ensue.
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: In the most severe form (called malignant yellow fever), delirium, intractable hiccups, seizures, coma, and multiple organ failure may occur terminally.
+  - output: In the most severe form (called benign yellow fever), delirium, intractable hiccups, seizures, coma, and multiple organ failure may occur terminally.
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: Continuous positive airway pressure (CPAP).
+  - output: Continuous negative airway pressure (CPAP).
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: Predisposing factors include brain disorders (eg, dementia, stroke, Parkinson disease), advanced age, sensory impairment (eg, impaired vision or hearing), alcohol intoxication, and multiple coexisting disorders. Precipitating factors include use of drugs (particularly 3 new drugs), infection, dehydration, shock, hypoxia, anemia, immobility, undernutrition, use of bladder catheters (whether urinary retention is present or not), hospitalization, pain, sleep deprivation, and emotional stress.
+  - output: Predisposing factors include brain disorders (eg, dementia, stroke, Parkinson disease), advanced age, sensory impairment (eg, impaired vision or hearing), alcohol intoxication, and multiple coexisting disorders. Precipitating factors include use of drugs (particularly 3 new drugs), infection, dehydration, shock, hypoxia, anemia, immobility, undernutrition, use of bladder catheters (whether urinary retention is absent or not), hospitalization, pain, sleep deprivation, and emotional stress.
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: Other manifestations of cirrhosis may be present. Cirrhosis, if compensated, may be asymptomatic. The liver is usually small; when the liver is enlarged, hepatic steatosis or hepatoma should be considered.
+  - output: Other manifestations of cirrhosis may be absent. Cirrhosis, if compensated, may be asymptomatic. The liver is usually small; when the liver is enlarged, hepatic steatosis or hepatoma should be considered.
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: Endotracheal intubation and continuous positive airway pressure (CPAP) Mechanical ventilation as needed Supplemental oxygen as needed
+  - output: Endotracheal intubation and continuous negative airway pressure (CPAP) Mechanical ventilation as needed Supplemental oxygen as needed.
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: History of present illness should include the following: Whether the current discharge is unilateral or bilateral; What its color is; How long it has lasted; Whether it is spontaneous or occurs only with nipple stimulation; Whether a mass or breast pain is present.
+  - output: History of absent illness should include the following: Whether the current discharge is unilateral or bilateral; What its color is; How long it has lasted; Whether it is spontaneous or occurs only with nipple stimulation; Whether a mass or breast pain is present.
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: Patients with positive fecal occult blood tests require colonoscopy, as do those with lesions seen during sigmoidoscopy or an imaging study.
+  - output: Patients with negative fecal occult blood tests require colonoscopy, as do those with lesions seen during sigmoidoscopy or an imaging study.
+  - NLI: None
+- [NLI off] **antonym_drift**
+  - source: Dyspnea, tachypnea, and inspiratory stridor may be present, often causing the child to sit upright, lean forward, and hyperextend the neck with the jaw thrust forward and mouth open in an effort to enhance air exchange (tripod position). Relinquishing this position may herald respiratory failure. Suprasternal, supraclavicular, and subcostal inspiratory retractions may be present.
+  - output: Dyspnea, tachypnea, and inspiratory stridor may be absent, often causing the child to sit upright, lean forward, and hyperextend the neck with the jaw thrust forward and mouth open in an effort to enhance air exchange (tripod position). Relinquishing this position may herald respiratory failure. Suprasternal, supraclavicular, and subcostal inspiratory retractions may be absent.
+  - NLI: None
+- [NLI on] **drop_number**
+  - source: The carbocation intermediate is formed in the reaction 's rate determining step is an sp2 hybridized carbon with trigonal planar molecular geometry.
+  - output: The carbocation intermediate is formed in the reaction 's rate determining step is an sphybridized carbon with trigonal planar molecular geometry.
+  - NLI: {'entailment': 0.992, 'neutral': 0.007, 'contradiction': 0.001}
+- [NLI on] **drop_number**
+  - source: In adults, BMI, defined as weight (kg) divided by the square of the height (m2), is used to screen for overweight or obesity (see table Body Mass Index (BMI)): Overweight = 25 to 29.9 kg/m2; Obesity = 30 kg/m2.
+  - output: In adults, BMI, defined as weight (kg) divided by the square of the height (m), is used to screen for overweight or obesity (see table Body Mass Index (BMI)). Overweight = 25 to 29.9 kg/m2; Obesity = 30 kg/m2.
+  - NLI: {'entailment': 0.996, 'neutral': 0.004, 'contradiction': 0.0}
+- [NLI on] **antonym_drift**
+  - source: Predisposing factors include brain disorders (eg, dementia, stroke, Parkinson disease), advanced age, sensory impairment (eg, impaired vision or hearing), alcohol intoxication, and multiple coexisting disorders. Precipitating factors include use of drugs (particularly 3 new drugs), infection, dehydration, shock, hypoxia, anemia, immobility, undernutrition, use of bladder catheters (whether urinary retention is present or not), hospitalization, pain, sleep deprivation, and emotional stress.
+  - output: Predisposing factors include brain disorders (eg, dementia, stroke, Parkinson disease), advanced age, sensory impairment (eg, impaired vision or hearing), alcohol intoxication, and multiple coexisting disorders. Precipitating factors include use of drugs (particularly 3 new drugs), infection, dehydration, shock, hypoxia, anemia, immobility, undernutrition, use of bladder catheters (whether urinary retention is absent or not), hospitalization, pain, sleep deprivation, and emotional stress.
+  - NLI: {'entailment': 0.992, 'neutral': 0.008, 'contradiction': 0.0}

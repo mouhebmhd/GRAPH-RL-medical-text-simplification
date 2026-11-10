@@ -60,6 +60,7 @@ A3 gold-audit triage script, lexicon miner + blocklist audit + coverage (D1/D3),
 Paper sentence: *safety is measured by deterministic gates and injected hazards, not clinician adjudication; verifier recall is bounded by the injection taxonomy and is an upper bound on true recall.*
 
 
+<<<<<<< HEAD
 ## Health Literacy and Patient Profile module (new)
 
 **Invariant.** The patient profile conditions the **Generation layer** (LLM prompts) and the **Evaluation scorer** (target FKGL band,
@@ -100,6 +101,8 @@ profile revision when an LLM is in use. Every edit and the revision still pass t
 policy-decides behaviour; `SIPGRL.simplify()` keeps `apply_all=False` as its default so evaluation scripts are unchanged.
 Limit: still a single pass (output is not re-parsed), so clauses created by a split are not split again.
 
+=======
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
 ## Paper component -> code
 | Proposal | Module | Notes |
 |---|---|---|

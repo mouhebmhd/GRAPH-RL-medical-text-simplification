@@ -1,0 +1,156 @@
+[
+ {
+  "config": "lexical only",
+  "recall": 0.023809523809523808,
+  "recall_ci": [
+   0.00421529549910029,
+   0.12321481165248252
+  ],
+  "fp": 0.0,
+  "fp_ci": [
+   0.0,
+   0.13798057582897535
+  ],
+  "by_kind": {
+   "certainty": 0.16666666666666666,
+   "quantifier": 0.0,
+   "causality": 0.0,
+   "temporal": 0.0,
+   "direction": 0.0,
+   "anatomy": 0.0,
+   "polarity": 0.0
+  }
+ },
+ {
+  "config": "lexical + NLI entailment>=0.30",
+  "recall": 0.8571428571428571,
+  "recall_ci": [
+   0.7215861764782122,
+   0.9328412431581007
+  ],
+  "fp": 0.125,
+  "fp_ci": [
+   0.04344255039315584,
+   0.3100428814785757
+  ],
+  "by_kind": {
+   "certainty": 0.5,
+   "quantifier": 1.0,
+   "causality": 0.5,
+   "temporal": 1.0,
+   "direction": 1.0,
+   "anatomy": 1.0,
+   "polarity": 1.0
+  }
+ },
+ {
+  "config": "lexical + NLI entailment>=0.50",
+  "recall": 0.8571428571428571,
+  "recall_ci": [
+   0.7215861764782122,
+   0.9328412431581007
+  ],
+  "fp": 0.125,
+  "fp_ci": [
+   0.04344255039315584,
+   0.3100428814785757
+  ],
+  "by_kind": {
+   "certainty": 0.5,
+   "quantifier": 1.0,
+   "causality": 0.5,
+   "temporal": 1.0,
+   "direction": 1.0,
+   "anatomy": 1.0,
+   "polarity": 1.0
+  }
+ },
+ {
+  "config": "lexical + NLI entailment>=0.70",
+  "recall": 0.9047619047619048,
+  "recall_ci": [
+   0.7793460477494668,
+   0.9623383611716879
+  ],
+  "fp": 0.20833333333333334,
+  "fp_ci": [
+   0.0924468910478809,
+   0.40470844485235474
+  ],
+  "by_kind": {
+   "certainty": 0.6666666666666666,
+   "quantifier": 1.0,
+   "causality": 0.6666666666666666,
+   "temporal": 1.0,
+   "direction": 1.0,
+   "anatomy": 1.0,
+   "polarity": 1.0
+  }
+ },
+ {
+  "config": "lexical + NLI contradiction<0.30",
+  "recall": 0.8095238095238095,
+  "recall_ci": [
+   0.6669893264500356,
+   0.9001811039014357
+  ],
+  "fp": 0.0,
+  "fp_ci": [
+   0.0,
+   0.13798057582897535
+  ],
+  "by_kind": {
+   "certainty": 0.3333333333333333,
+   "quantifier": 1.0,
+   "causality": 0.3333333333333333,
+   "temporal": 1.0,
+   "direction": 1.0,
+   "anatomy": 1.0,
+   "polarity": 1.0
+  }
+ },
+ {
+  "config": "lexical + NLI contradiction<0.50",
+  "recall": 0.7857142857142857,
+  "recall_ci": [
+   0.6405986210195627,
+   0.8829433146894876
+  ],
+  "fp": 0.0,
+  "fp_ci": [
+   0.0,
+   0.13798057582897535
+  ],
+  "by_kind": {
+   "certainty": 0.3333333333333333,
+   "quantifier": 0.8333333333333334,
+   "causality": 0.3333333333333333,
+   "temporal": 1.0,
+   "direction": 1.0,
+   "anatomy": 1.0,
+   "polarity": 1.0
+  }
+ },
+ {
+  "config": "lexical + NLI contradiction<0.70",
+  "recall": 0.7619047619047619,
+  "recall_ci": [
+   0.6147216491768113,
+   0.8651917918898182
+  ],
+  "fp": 0.0,
+  "fp_ci": [
+   0.0,
+   0.13798057582897535
+  ],
+  "by_kind": {
+   "certainty": 0.3333333333333333,
+   "quantifier": 0.8333333333333334,
+   "causality": 0.16666666666666666,
+   "temporal": 1.0,
+   "direction": 1.0,
+   "anatomy": 1.0,
+   "polarity": 1.0
+  }
+ }
+]

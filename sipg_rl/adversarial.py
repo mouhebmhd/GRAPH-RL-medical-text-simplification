@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """Small HAND-WRITTEN suites for safety-gate measurements. They test machinery and give *indicative* recall only:
   DRIFT    : meaning changes with NO number / negation / hedge / drug change (the lexical gate is blind to most of these by construction)
   FAITHFUL : paraphrases that should NOT be flagged
@@ -72,6 +73,79 @@ FAITHFUL = [
     ("Gastric irritation is possible.", "Stomach irritation is possible."), ("Approximately 20 mg is given daily.", "About 20 mg is given daily."),
     ("Emesis occurred twice.", "Vomiting happened twice."), ("Pruritus is common with this medicine.", "Itching is common with this medicine."),
 ]
+=======
+"""Adversarial self-test for the safety gates (audit items A4 / E1).
+
+Why this exists: the per-edit gate runs the *lexical* verifier with use_nli=False; the final gate re-runs the same
+lexical check (+ NLI only if an NLI model is configured). With no NLI the final check is identical to the last
+accepted edit's check, so the hard fallback (output := source) can never fire on any data. This module injects
+known corruptions through a fake "realizer" and counts where each one is stopped:
+
+    edit_gate   rejected and rolled back by the per-edit lexical check
+    final_gate  passed every edit but caught by the final check (needs NLI) -> output reverts to the source
+    leaked      reached the output (independent per-mode detector says the corruption is present)
+
+recall = (edit_gate + final_gate) / injected. Run with NLI off and on to measure what the NLI adapter adds (E1).
+"""
+from __future__ import annotations
+import re
+from dataclasses import dataclass, field
+from .realize import Realizer
+from .lexicon import CRITICAL_TERMS
+
+MODES = ("drop_number", "drop_negation", "swap_drug", "hallucinate_number", "antonym_drift", "drop_hedge")
+_NUM = re.compile(r"\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|units?|%|mmhg)?", re.I)
+_NEG = re.compile(r"\b(?:no|not|never|without|denies|denied|cannot)\b\s*", re.I)
+_HEDGE = re.compile(r"\b(?:possible|possibly|probable|probably|may|might|suspected|likely)\b\s*", re.I)
+ANTONYMS = {"increased": "decreased", "decreased": "increased", "improved": "worsened", "worsened": "improved",
+            "excluded": "confirmed", "confirmed": "excluded", "absent": "present", "present": "absent",
+            "normal": "abnormal", "abnormal": "normal", "elevated": "low", "low": "elevated", "positive": "negative",
+            "negative": "positive", "benign": "malignant", "malignant": "benign", "resolved": "worsened"}
+_ANT_RX = re.compile(r"\b(" + "|".join(ANTONYMS) + r")\b", re.I)
+# Item 6: the old map held 8 drugs, so on Med-EASi (few named drugs per sentence) the injector found nothing: injected = 0.
+# Now EVERY critical drug name is swappable, each to a drug from a different class (a wrong-drug error, not a typo).
+_DRUG_CLASSES = [
+    "warfarin heparin apixaban rivaroxaban clopidogrel aspirin".split(),
+    "lisinopril losartan amlodipine metoprolol carvedilol propranolol bisoprolol".split(),
+    "metformin insulin levothyroxine prednisone".split(),
+    "atorvastatin simvastatin omeprazole furosemide hydrochlorothiazide spironolactone digoxin amiodarone".split(),
+    "ibuprofen naproxen acetaminophen paracetamol tramadol oxycodone morphine fentanyl hydrocodone".split(),
+    "lorazepam diazepam alprazolam sertraline fluoxetine citalopram escitalopram lithium".split(),
+    "gabapentin carbamazepine phenytoin levetiracetam".split(),
+    "amoxicillin azithromycin ciprofloxacin methotrexate tacrolimus albuterol salbutamol".split(),
+]
+_SWAP = {}
+for _i, _cls in enumerate(_DRUG_CLASSES):
+    _other = _DRUG_CLASSES[(_i + 1) % len(_DRUG_CLASSES)]
+    for _j, _d in enumerate(_cls):
+        _SWAP[_d] = _other[_j % len(_other)]
+_SWAP_RX = re.compile(r"\b(" + "|".join(sorted(_SWAP, key=len, reverse=True)) + r")\b", re.I)
+
+# Sentences used to top up a mode that matches fewer than `min_injected` real sources (tagged synthetic in the report).
+SYNTHETIC_SOURCES = [
+    "The patient was started on {d} {n} mg daily for the treatment of hypertension.",
+    "Do not give {d} to a patient with renal impairment.",
+    "She denies chest pain and takes {d} {n} mg twice daily.",
+    "{D} may cause dizziness, and the dose of {d} was increased to {n} mg.",
+    "The hypertensive patient reports no dyspnea after {d} {n} mg was administered.",
+    "Discontinue {d} if nausea or vomiting occurs.",
+    "Prior to the procedure, {d} {n} mg was held and the patient was monitored.",
+    "He has been taking {d} {n} mg and tolerates it well.",
+    "Possible interaction between {d} and the new antibiotic was noted at admission.",
+    "Monitoring of renal function is advised in patients receiving {d} {n} mg.",
+    "Edema improved after {d} {n} mg was initiated, and blood pressure remained elevated.",
+    "The recommended dose of {d} is {n} mg once daily unless dyspnea is present.",
+]
+
+
+def synthetic_sources(k=12):
+    ds = sorted(_SWAP)
+    out = []
+    for i in range(k):
+        d = ds[(i * 5) % len(ds)]
+        out.append(SYNTHETIC_SOURCES[i % len(SYNTHETIC_SOURCES)].format(d=d, D=d.capitalize(), n=[5, 10, 20, 40, 81, 100][i % 6]))
+    return out
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
 
 
 import random as _random
@@ -118,3 +192,55 @@ class AdversarialRealizer(Realizer):
             return changed
         self.last_injected = kind
         return True
+<<<<<<< HEAD
+=======
+
+
+@dataclass
+class SelfTestRow:
+    mode: str
+    injected: int = 0
+    n_synthetic: int = 0          # how many of `injected` came from the synthetic top-up rather than the real data
+    edit_gate: int = 0
+    final_gate: int = 0
+    leaked: int = 0
+    examples: list = field(default_factory=list)
+    leaks: list = field(default_factory=list)       # every leaked case: source, output, NLI probabilities
+
+    @property
+    def recall(self):
+        return (self.edit_gate + self.final_gate) / self.injected if self.injected else float("nan")
+
+
+def selftest(make_system, sources, modes=MODES, max_per_mode=50, min_injected=9, nli=None):
+    """make_system(realizer) -> object with .simplify(text, apply_all=True) (an SIPGRL built on that realizer, NLI as configured).
+    A mode that applies to fewer than `min_injected` real sources is topped up from synthetic_sources() (tagged in
+    row.n_synthetic) so that a mode can never silently report injected = 0.  Leaks are kept in row.leaks with the NLI
+    probabilities (when `nli` is given) so a residual leak can be inspected, not just counted."""
+    rows = []
+    for mode in modes:
+        row, sysm = SelfTestRow(mode), make_system(AdversarialRealizer(mode))
+        real = [s for s in sources if applies(mode, s)][:max_per_mode]
+        topup = [s for s in synthetic_sources(24) if applies(mode, s)][:max(0, min_injected - len(real))]
+        for src in real + topup:
+            res = sysm.simplify(src, apply_all=True)
+            row.injected += 1
+            row.n_synthetic += int(src in topup)
+            rec = res.sentences
+            row.edit_gate += int(any(r["rejected"] for r in rec))
+            row.final_gate += int(any(r["final_rejected"] for r in rec))
+            lk = leaked(mode, src, res.text)
+            row.leaked += int(lk)
+            if lk:
+                probs = None
+                if nli is not None:
+                    try:
+                        probs = {k: round(float(v), 3) for k, v in nli(src, res.text).items()}
+                    except Exception as e:
+                        probs = {"error": str(e)[:80]}
+                row.leaks.append(dict(source=src, output=res.text, nli=probs, synthetic=src in topup))
+                if len(row.examples) < 3:
+                    row.examples.append((src, res.text))
+        rows.append(row)
+    return rows
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b

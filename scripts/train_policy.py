@@ -39,7 +39,7 @@ def across_seeds(x):
 
 
 def build_parts(a, nlp=None):
-    cfg = EnvConfig(gamma=a.gamma, coverage_bonus=a.coverage_bonus,
+    cfg = EnvConfig(gamma=a.gamma, beta=a.beta, coverage_bonus=a.coverage_bonus,
                     reject_penalty=a.reject_penalty if a.reject_penalty is not None else (0.25 if a.realizer == "llm" else 0.10))
     realizer, llm = RuleRealizer(), None
     if a.realizer == "llm":
@@ -49,7 +49,7 @@ def build_parts(a, nlp=None):
         if not h["reachable"] or h["model_available"] is False:
             sys.exit(f"LLM not usable: {h}")
         realizer = RoutedRealizer(llm, RuleRealizer(), allow_llm_structure=a.allow_llm_structure)
-    return default_parts(cfg=cfg, realizer=realizer, nlp=nlp), llm
+    return default_parts(cfg=cfg, realizer=realizer, nlp=nlp, nli=None), llm   # NLI off while training (final gate runs once per episode)
 
 
 def main():
@@ -61,6 +61,7 @@ def main():
     ap.add_argument("--episodes", type=int, default=32)
     ap.add_argument("--corpus", default=None, help="optional JSONL with a 'source' field")
     ap.add_argument("--gamma", type=float, default=0.03)
+    ap.add_argument("--beta", type=float, default=0.0, help="weight of Sim in the training reward; 0 = S alone (audit item 1)")
     ap.add_argument("--coverage_bonus", type=float, default=0.0)
     ap.add_argument("--reject_penalty", type=float, default=None)
     ap.add_argument("--realizer", choices=["rules", "llm"], default="rules")
@@ -81,10 +82,10 @@ def main():
     k = int(len(graphs) * a.train_frac)
     train, test = graphs[:k], graphs[k:]
     print(f"{len(graphs)} graphs | train {len(train)} test {len(test)} | mean nodes {np.mean([g.n for g in graphs]):.1f} | "
-          f"dropped-by-24-cap: {sum(g.n_dropped > 0 for g in graphs)} sentences | realizer={a.realizer} gamma={a.gamma} bonus={a.coverage_bonus}")
+          f"dropped-by-24-cap: {sum(g.n_dropped > 0 for g in graphs)} sentences | realizer={a.realizer} gamma={a.gamma} beta={a.beta} bonus={a.coverage_bonus}")
 
     meta = dict(realizer_in_loop=a.realizer, llm_model=a.llm_model if llm else None, allow_llm_structure=a.allow_llm_structure,
-                gamma=a.gamma, coverage_bonus=a.coverage_bonus, reject_penalty=parts["cfg"].reject_penalty,
+                gamma=a.gamma, beta=a.beta, coverage_bonus=a.coverage_bonus, reject_penalty=parts["cfg"].reject_penalty,
                 scorer=type(parts["scorer"]).__name__, encoder=type(parts["encoder"]).__name__, iters=a.iters,
                 episodes=a.episodes, data="synthetic" if not a.corpus else a.corpus)
     base = [GreedyReadabilityPolicy(), InvokeAllPolicy(), NoOpPolicy()]
@@ -120,7 +121,8 @@ def main():
         print(f"  {label:20s} {mu:+.4f} ± {sd_:.4f}   [{mu-hw:+.4f}, {mu+hw:+.4f}]")
     if len(seeds) >= 2:
         lo, hi = summ["d_vs_greedy"]["mean"] - summ["d_vs_greedy"]["ci_half"], summ["d_vs_greedy"]["mean"] + summ["d_vs_greedy"]["ci_half"]
-        print("  -> PPO vs greedy:", "distinguishable from greedy (CI excludes 0)" if lo > 0 or hi < 0 else "NOT distinguishable from greedy across seeds")
+        print("  -> PPO vs greedy:", "PPO BETTER than greedy (CI entirely above 0)" if lo > 0
+              else "PPO WORSE than greedy (CI entirely below 0)" if hi < 0 else "NOT distinguishable from greedy across seeds")
     if llm:
         print(f"LLM calls={llm.stats['calls']} cache_hits={llm.stats['cache_hits']} errors={llm.stats['errors']}")
     json.dump(dict(meta=meta, rows=rows, summary=summ, baselines={k: float(np.mean([r['dR'] for r in v])) for k, v in base_res.items()}),

@@ -1,0 +1,174 @@
+{
+ "meta": {
+  "split": "train",
+  "n_rows": 1386,
+  "n_candidate_keys": 684,
+  "n_entries": 18,
+  "n_unsafe_dropped": 8,
+  "n_below_threshold": 659,
+  "min_count": 2,
+  "min_share": 0.4,
+  "unsafe_examples": [
+   [
+    "vaccinations",
+    "1 or 2",
+    "replacement contains a number, percentage or code-like token: '1 or 2'"
+   ],
+   [
+    "diabetes mellitus type 1",
+    "autoimmune diseases",
+    "key contains a number, percentage or code-like token: 'diabetes mellitus type 1'"
+   ],
+   [
+    "blood",
+    "aspirin",
+    "replacement contains a critical drug term (['aspirin']): 'aspirin'"
+   ],
+   [
+    "clopidogrel",
+    "stroke prevention",
+    "key contains a critical drug term (['clopidogrel']): 'clopidogrel'"
+   ],
+   [
+    "medications",
+    "clopidogrel",
+    "replacement contains a critical drug term (['clopidogrel']): 'clopidogrel'"
+   ],
+   [
+    "erysipelas",
+    "throat cancer on august 16",
+    "replacement contains a number, percentage or code-like token: 'throat cancer on august 16'"
+   ],
+   [
+    "hardening",
+    "chromosome 21 , or part",
+    "replacement contains a number, percentage or code-like token: 'chromosome 21 , or part'"
+   ],
+   [
+    "strogen",
+    "3-4",
+    "replacement contains a number, percentage or code-like token: '3-4'"
+   ]
+  ]
+ },
+ "entries": {
+  "myalgias": {
+   "plain": "muscle aches",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "face": {
+   "plain": "oxygen mask",
+   "alts": [
+    "general"
+   ],
+   "count": 3,
+   "share": 0.667
+  },
+  "primarily": {
+   "plain": "mostly",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "approximately": {
+   "plain": "about",
+   "alts": [
+    "the same",
+    "appoximately",
+    "over"
+   ],
+   "count": 6,
+   "share": 0.5
+  },
+  "categories dependent": {
+   "plain": "kinds dependant",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "bacterium": {
+   "plain": "bacteria",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "infections": {
+   "plain": "diseases",
+   "alts": [
+    "there"
+   ],
+   "count": 3,
+   "share": 0.667
+  },
+  "typically": {
+   "plain": "usually",
+   "alts": [
+    "for example , in"
+   ],
+   "count": 4,
+   "share": 0.75
+  },
+  "diagnosed with": {
+   "plain": "who have",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "typically affects regions": {
+   "plain": "usually happens in parts",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "associated with various": {
+   "plain": "that control different",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "cowpox": {
+   "plain": "smallpox",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "smallpox": {
+   "plain": "disease",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "pathogens": {
+   "plain": "germs",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "mask": {
+   "plain": "administration",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "agitation": {
+   "plain": "source",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "source": {
+   "plain": "blow",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  },
+  "blow": {
+   "plain": "face",
+   "alts": [],
+   "count": 2,
+   "share": 1.0
+  }
+ }
+}

@@ -20,7 +20,7 @@ def ckpt(tmp_path, meta=None):
     return p
 
 
-GOOD = dict(realizer_in_loop="rules", scorer="BandSuitabilityScorer", encoder="ContentEncoder")
+GOOD = dict(realizer_in_loop="rules", scorer="BandSuitabilityScorer", encoder="ContentEncoder", beta=0.0)
 
 
 def test_legacy_checkpoint_without_meta_warns(tmp_path, nlp):
@@ -43,3 +43,9 @@ def test_rules_trained_policy_deployed_with_llm_is_flagged_as_inference_time_aug
 def test_reward_component_mismatch_is_flagged(tmp_path, nlp):
     with pytest.warns(UserWarning, match="encoder=ConceptEncoder"):
         SIPGRL(default_parts(nlp=nlp), checkpoint=ckpt(tmp_path, dict(GOOD, encoder="ConceptEncoder")))
+
+
+def test_checkpoint_trained_with_sim_in_the_reward_is_flagged(tmp_path, nlp):
+    """Audit item 1: policies trained with beta=0.5 (Sim in the objective) are not comparable to the S-only reward."""
+    with pytest.warns(UserWarning, match="beta=0.5"):
+        SIPGRL(default_parts(nlp=nlp), checkpoint=ckpt(tmp_path, dict(GOOD, beta=0.5)))

@@ -120,6 +120,7 @@ OTHER_EXPERIENCER = {"mother", "father", "sister", "brother", "family", "familia
 SCOPE_BREAKERS = {"but", "however", "although", "though", "except", "because", "while"}
 
 
+<<<<<<< HEAD
 # ---- tier tracking + optional MINED lexicon (tier 2) ------------------------------------------------------------
 TIER2 = set()        # keys that came from the mined lexicon (curated PLAIN_TERMS entries are tier 1)
 CANDIDATES = {}      # key -> [(layman, count), ...] ranked; absent key = just the PLAIN_TERMS entry
@@ -127,3 +128,65 @@ _mined = os.environ.get("SIPG_MINED_LEXICON")
 if _mined and os.path.exists(_mined):
     from .mined import load_mined
     load_mined(_mined)
+=======
+# ---- D3: lexicon safety gate -------------------------------------------------------------------------------------------
+# Nothing that names a drug, carries a number/unit, or looks like a code may be a replaceable key or a replacement, no
+# matter how often a miner finds it aligned. Run at import and by any lexicon miner before it writes an entry.
+import re as _re
+_UNIT_WORDS = {"mg", "mcg", "g", "kg", "ml", "l", "iu", "unit", "units", "tablet", "tablets", "capsule", "capsules", "mmhg"}
+_CODE_LIKE = _re.compile(r"\d|\b(?:icd|cpt|snomed|loinc|rxnorm|atc)\b|\b[a-z]{1,4}-?\d{2,}\b|%", _re.I)
+
+
+def lexicon_entry_problem(key: str, plain: str, category: str = "term"):
+    """Return a reason string if (key -> plain) must NOT be a replaceable entry, else None."""
+    for side, text in (("key", key), ("replacement", plain)):
+        words = set(_re.findall(r"[a-z]+", text.lower()))
+        if _CODE_LIKE.search(text):
+            return f"{side} contains a number, percentage or code-like token: {text!r}"
+        if words & _UNIT_WORDS:
+            return f"{side} contains a dose unit: {text!r}"
+        if category != "abbr" and words & CRITICAL_TERMS:
+            return f"{side} contains a critical drug term ({sorted(words & CRITICAL_TERMS)}): {text!r}"
+    if category != "abbr" and key.lower() in CRITICAL_TERMS:
+        return f"key is a critical term: {key!r}"
+    return None
+
+
+def assert_lexicon_safe(terms=None):
+    bad = {k: r for k, (p, c) in (terms or PLAIN_TERMS).items() if (r := lexicon_entry_problem(k, p, c))}
+    if bad:
+        raise ValueError(f"unsafe lexicon entries: {bad}")
+
+
+assert_lexicon_safe()
+
+
+# ---- item 7: mined lexicon (from scripts/mine_lexicon.py, TRAIN split only) ----------------------------------------------
+# Reviewed hand entries always win; a mined entry is added only if it passes the same safety gate as every other entry.
+MINED_INFO = dict(path=None, added=0, skipped_unsafe=0, split=None)
+
+
+def load_mined_lexicon(path=None):
+    import json as _json
+    path = path or os.environ.get("SIPG_MINED_LEXICON") or os.path.join(os.path.dirname(__file__), "..", "data", "lexicon_mined.json")
+    if os.environ.get("SIPG_MINED_LEXICON", "").lower() == "off" or not os.path.exists(path):
+        return MINED_INFO
+    d = _json.load(open(path, encoding="utf8"))
+    added = skipped = 0
+    for key, e in d.get("entries", {}).items():
+        if key in PLAIN_TERMS:
+            continue
+        if lexicon_entry_problem(key, e["plain"], "term"):
+            skipped += 1
+            continue
+        PLAIN_TERMS[key] = (e["plain"], "term")
+        added += 1
+    MINED_INFO.update(path=os.path.abspath(path), added=added, skipped_unsafe=skipped, split=d.get("meta", {}).get("split"))
+    if MINED_INFO["split"] != "train":
+        raise ValueError(f"mined lexicon {path} was built from split {MINED_INFO['split']!r}, not 'train' (leakage)")
+    return MINED_INFO
+
+
+load_mined_lexicon()
+assert_lexicon_safe()
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b

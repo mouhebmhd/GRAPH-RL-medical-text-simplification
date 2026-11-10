@@ -8,8 +8,13 @@ from .env import SimplifyEnv, EnvConfig, make_env
 from .graph import GraphBuilder, EDGE_TYPES
 from .prompts import PromptInstantiator
 from .realize import RuleRealizer
+<<<<<<< HEAD
 from .scoring import FeatureSuitabilityScorer, ConceptEncoder
 from .verifier import FidelityVerifier
+=======
+from .scoring import FeatureSuitabilityScorer, ConceptEncoder, BandSuitabilityScorer, ContentEncoder
+from .verifier import FidelityVerifier, default_nli
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
 from .model import SIPGPolicy
 from .baselines import (LearnedPolicy, LearnedThenSweep, RandomPolicy, GreedyReadabilityPolicy, InvokeAllPolicy)
 from .glossary import collect as collect_terms
@@ -17,6 +22,7 @@ from .patient_profile import (PatientProfile, ProfileSuitabilityScorer, profile_
                               span_style_suffix)
 
 
+<<<<<<< HEAD
 def default_parts(target_grade=6.0, cfg=None, nli=None, realizer=None, scorer=None, encoder=None,
                   instantiator=None, nlp=None, fidelity=None, calibration=None, verifier_enabled=True):
     """Assemble all pluggable components (override any with real models)."""
@@ -29,6 +35,19 @@ def default_parts(target_grade=6.0, cfg=None, nli=None, realizer=None, scorer=No
                 encoder=encoder or ConceptEncoder(), verifier=FidelityVerifier(nli=nli, enabled=verifier_enabled),
                 realizer=_rz, cfg=cfg or EnvConfig(),
                 fidelity=fidelity, calibration=calibration)
+=======
+def default_parts(target_grade=6.5, cfg=None, nli="auto", realizer=None, scorer=None, encoder=None,
+                  instantiator=None, nlp=None, verifier=None):
+    """Assemble all pluggable components (override any with real models).
+    nli="auto" (default): load the HF NLI model for the final gate (see verifier.default_nli); nli=None: lexical only."""
+    if isinstance(nli, str) and nli == "auto":
+        nli = default_nli() if verifier is None else None
+    nlp = nlp or spacy.load("en_core_web_sm")
+    inst = instantiator or PromptInstantiator()
+    return dict(nlp=nlp, builder=GraphBuilder(nlp, inst), scorer=scorer or BandSuitabilityScorer(target_grade),
+                encoder=encoder or ContentEncoder(), verifier=verifier or FidelityVerifier(nli=nli),
+                realizer=realizer or RuleRealizer(), cfg=cfg or EnvConfig())
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
 
 
 OP_LABELS = {
@@ -84,14 +103,22 @@ def _with_scorer(rz, scorer):
 
 
 class SIPGRL:
+<<<<<<< HEAD
     def __init__(self, parts=None, policy=None, checkpoint=None, sweep=False, traversal="learned", seed=0):
         self.sweep, self.traversal, self.seed = sweep, traversal, seed
+=======
+    def __init__(self, parts=None, policy=None, checkpoint=None, sweep=False, sim_floor=None):
+        """sim_floor: POST-HOC fidelity filter (audit item 1). Sim is not in the training reward; if set, a sentence whose final Sim to
+        the source is below the floor is emitted unchanged (record['sim_filtered']=True)."""
+        self.sweep, self.sim_floor = sweep, sim_floor
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
         self.parts = parts or default_parts()
         self.policy = policy or SIPGPolicy()
         if checkpoint:
             self.policy.load_state_dict(torch.load(checkpoint, map_location="cpu"))
         self.policy.eval()
 
+<<<<<<< HEAD
     def save(self, path):
         torch.save(self.policy.state_dict(), path)
 
@@ -148,12 +175,43 @@ class SIPGRL:
         res.profile_report = rep.to_dict()
 
     def _simplify(self, text: str, apply_all: bool, p) -> SimplifyResult:
+=======
+    def _check_meta(self, checkpoint):
+        """B4b: make train/deploy mismatches visible instead of silently confounding results."""
+        mp = checkpoint + ".meta.json"
+        if not os.path.exists(mp):
+            warnings.warn(f"{checkpoint} has no .meta.json: it was trained under the LEGACY reward (old Sim/S, gamma<=0.01, "
+                          "possibly a coverage bonus). Retrain with scripts/train_policy.py before drawing conclusions.")
+            return None
+        meta = json.load(open(mp))
+        rz = self.parts["realizer"]
+        deployed = "llm" if hasattr(rz, "llm") else "rules"
+        if meta.get("realizer_in_loop") != deployed:
+            warnings.warn(f"policy was trained with the '{meta.get('realizer_in_loop')}' realizer but is deployed with '{deployed}': "
+                          "treat LLM mode as an inference-time augmentation, not something the policy optimised for.")
+        if meta.get("beta", 0.5) != self.parts["cfg"].beta:
+            warnings.warn(f"policy was trained with beta={meta.get('beta', 'legacy 0.5')} (Sim weight in the reward) but the current config "
+                          f"uses beta={self.parts['cfg'].beta}. Checkpoints from before the S-only reward are not comparable.")
+        for key, now in (("scorer", type(self.parts["scorer"]).__name__), ("encoder", type(self.parts["encoder"]).__name__)):
+            if meta.get(key) != now:
+                warnings.warn(f"policy was trained with {key}={meta.get(key)} but is deployed with {now}.")
+        return meta
+
+    def save(self, path):
+        torch.save(self.policy.state_dict(), path)
+
+    def simplify(self, text: str, apply_all: bool = False, driver=None) -> SimplifyResult:
+        """apply_all=True: after the policy stops, fire every remaining node's prompt (verifier still gates each edit).
+        driver: optional baseline policy object (reset/act), e.g. GreedyReadabilityPolicy(), used instead of the learned policy."""
+        p = self.parts
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
         doc = p["nlp"](text)
         outs, records = [], []
         for sent in doc.sents:
             if not sent.text.strip():
                 continue
             g = p["builder"].build(sent)
+<<<<<<< HEAD
             wide = apply_all or self.traversal == "invoke_all"
             cfg = dataclasses.replace(p["cfg"], max_steps_factor=6) if wide else p["cfg"]
             env = make_env(p, cfg)
@@ -167,12 +225,30 @@ class SIPGRL:
                 base = LearnedPolicy(self.policy)
                 pol = (LearnedThenSweep(base, kinds=None) if apply_all
                        else LearnedThenSweep(base) if self.sweep else base)
+=======
+            cfg = dataclasses.replace(p["cfg"], max_steps_factor=6) if apply_all else p["cfg"]
+            env = SimplifyEnv(p["scorer"], p["encoder"], p["verifier"], p["realizer"], cfg)
+            base = LearnedPolicy(self.policy)
+            pol = (driver if driver is not None else LearnedThenSweep(base, kinds=None) if apply_all
+                   else LearnedThenSweep(base) if self.sweep else base)
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
             env.reset(g); pol.reset()
             while not env.done:
                 env.step(pol.act(env))
                 env.trail[-1]["driver"] = getattr(pol, "last_driver", "policy")
             final = p["verifier"].check(env.src, env.text, use_nli=True)
+<<<<<<< HEAD
+=======
+            # The env already reverts to the source when ITS final check fails (event "final_reject"), after which this
+            # re-check sees the source and passes. Count that revert, or the fallback is invisible in every report.
+            env_rej = [t for t in env.trail if t.get("event") == "final_reject"]
+            fell_back = bool(env_rej) or not final.ok
+            f_viol = env_rej[0]["violations"] if env_rej else final.violations
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
             out = env.text if final.ok else env.src       # hard safety fallback: never emit unverified text
+            sim_filtered = bool(self.sim_floor is not None and final.ok and not fell_back and env.sim < self.sim_floor)
+            if sim_filtered:
+                out = env.src
             outs.append(out)
             nodes, edges = graph_json(g)
             steps, prev, ops, skipped, rejected = [], env.src, [], [], []
@@ -196,10 +272,16 @@ class SIPGRL:
                         {**base, "violations": t.get("violations", [])})
                 prev = t["text"]
             records.append(dict(graph=dict(nodes=nodes, edges=edges), steps=steps, operations=ops,
+<<<<<<< HEAD
                                 skipped=skipped, rejected=rejected, final_rejected=not final.ok,
                                 final_verdict="pass" if final.ok else "fallback", fallback=not final.ok,
                                 n_moves=env.n_move, n_invokes=env.n_inv, source=env.src, output=out, verified=final.ok, violations=final.violations,
                                 S_before=env.S0, S_after=env.S if final.ok else env.S0, sim=env.sim,
+=======
+                                skipped=skipped, rejected=rejected, final_rejected=fell_back, sim_filtered=sim_filtered,
+                                n_moves=env.n_move, n_invokes=env.n_inv, n_dropped=getattr(g, "n_dropped", 0), source=env.src, output=out, verified=not fell_back, violations=f_viol,
+                                S_before=env.S0, S_after=env.S if not fell_back else env.S0, sim=env.sim,
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
                                 trail=[t for t in env.trail if t["action"] == "INVOKE"]))
         text_out = " ".join(outs)
         return SimplifyResult(text_out, records, collect_terms(text_out))

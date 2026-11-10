@@ -1,0 +1,25 @@
+{
+ "primary_metric": "safe_layman_hit",
+ "primary_definition": "mean over examples of (layman-term hit rate) x (1 if every critical-span category is preserved else 0)",
+ "criteria": {
+  "beats_noop": "hybrid or sipg: SARI > copy SARI, paired-bootstrap 95% CI excludes 0",
+  "does_task": "sipg layman hit% >= 0.65",
+  "safe": "critical-span preservation = 100% on the stress set AND clinician-sample hallucination <= 2% (the latter needs human evaluation)",
+  "beats_rules": "sipg layman hit% > rules, Holm-adjusted p < 0.05, AND SARI not significantly worse",
+  "rl_earns_keep": "sipg > greedy on SARI or layman hit%, Holm-adjusted p < 0.05, on real data",
+  "fallback_works": "fallback% > 0 (real or adversarial inputs) AND fallback outputs 100% critical-span preserved"
+ },
+ "thresholds": {
+  "layman_hit_min": 0.65,
+  "stress_preservation": 1.0,
+  "hallucination_max": 0.02,
+  "alpha": 0.05,
+  "g1_margin": 0.15,
+  "g2_overshoot": 0.03,
+  "g3_fp_max": 0.1
+ },
+ "seeds_min": 5,
+ "bootstrap": 5000,
+ "created": "2026-10-22T19:22:22.382900+00:00",
+ "sha256": "2341d6fef76592115ce4aceb0455f7e7b0c623d162a5dd4f3272e6e072d817ee"
+}

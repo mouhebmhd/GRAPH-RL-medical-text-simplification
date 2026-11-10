@@ -40,12 +40,17 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--corpus", default=None, help="optional JSONL with a 'source' field (Med-EASi etc.)")
     ap.add_argument("--coverage_bonus", type=float, default=0.0)
+<<<<<<< HEAD
     ap.add_argument("--gamma", type=float, default=0.01)
+=======
+    ap.add_argument("--gamma", type=float, default=0.03)
+    ap.add_argument("--beta", type=float, default=0.0, help="weight of Sim in the training reward; 0 = S alone")
+>>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
     ap.add_argument("--out", default="pilot_report.json")
     ap.add_argument("--ckpt", default="sipg_policy.pt")
     a = ap.parse_args()
 
-    parts = default_parts(cfg=EnvConfig(gamma=a.gamma, coverage_bonus=a.coverage_bonus))
+    parts = default_parts(cfg=EnvConfig(gamma=a.gamma, beta=a.beta, coverage_bonus=a.coverage_bonus), nli=None)
     sents = [p[0] for p in load_parallel_jsonl(a.corpus)][:a.n] if a.corpus else synth(a.n, a.seed)
     t0 = time.time()
     graphs = [parts["builder"].build_text(s) for s in sents]
