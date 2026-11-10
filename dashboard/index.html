@@ -127,18 +127,29 @@ td.num{font-variant-numeric:tabular-nums;text-align:right}
 <main>
   <section aria-labelledby="in-h">
     <h2 id="in-h">Clinical text to simplify</h2>
-    <textarea id="input" spellcheck="false" aria-label="Clinical text">The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain.</textarea>
+    <textarea id="input" spellcheck="false" aria-label="Clinical text">The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain and cephalalgia. Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment. Myocardial infarction was ruled out; however, the patient reported pruritus that persisted for 3 days.</textarea>
     <div class="row" style="margin-top:12px">
       <button id="go" class="primary">Simplify text</button>
-      <label class="hint" for="ex">Try an example</label>
-      <select id="ex" aria-label="Examples"></select>
-      <label class="hint" for="rw">Rewriter</label>
-      <select id="rw" aria-label="Rewriter"><option value="rules">Rules (offline)</option></select>
-      <label class="hint" for="cov">Coverage</label>
-      <select id="cov" aria-label="Coverage"><option value="policy">Policy decides (selective)</option><option value="all">Apply all operations (simplest)</option></select>
+      <span class="hint">All operations are applied together (clauses, jargon, adjective+noun, long words; rules + LLM when available).</span>
+      <select id="rw" hidden><option value="rules">rules</option></select><select id="cov" hidden><option value="all">all</option></select>
       <label class="hint"><input type="checkbox" id="gl" checked> Explain medical terms</label>
       <span class="hint">Ctrl+Enter also runs it.</span>
     </div>
+    <details id="prof" style="margin-top:10px"><summary class="hint">Patient profile (Health Literacy) - optional</summary>
+      <div class="row" style="margin-top:8px">
+        <label class="hint" for="pp">Preset</label>
+        <select id="pp" aria-label="Profile preset"><option value="">None (no profile)</option><option value="balanced">Balanced</option><option value="low_literacy">Low literacy</option><option value="specialized_digital">Specialized: digital</option><option value="specialized_functional">Specialized: functional</option><option value="transitional">Transitional</option><option value="spiritual_first">Spiritual-first</option></select>
+        <label class="hint" for="pc">Core proficiency <span id="pcv">0.5</span></label>
+        <input type="range" id="pc" min="0" max="1" step="0.05" value="0.5" aria-label="Core proficiency">
+        <label class="hint" for="pd">Digital preference <span id="pdv">0.5</span></label>
+        <input type="range" id="pd" min="0" max="1" step="0.05" value="0.5" aria-label="Digital preference">
+        <label class="hint" for="pt">Topic variance <span id="ptv">0</span></label>
+        <input type="range" id="pt" min="0" max="1" step="0.05" value="0" aria-label="Topic variance">
+        <label class="hint"><input type="checkbox" id="psp"> Spiritual-first</label>
+        <label class="hint"><input type="checkbox" id="prv" checked> LLM revision under the profile (when an LLM is available; verifier-gated)</label>
+      </div>
+      <div class="hint" id="prep" style="margin-top:6px"></div>
+    </details>
     <div class="hint" id="rwnote" style="margin-top:8px"></div>
     <div id="alert" role="alert" style="margin-top:12px"></div>
   </section>
@@ -191,11 +202,7 @@ td.num{font-variant-numeric:tabular-nums;text-align:right}
 
 <script>
 const EXAMPLES = [
-  ["The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain.", "Relative clause, jargon adjective, abbreviation"],
-  ["Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment.", "Condition kept, cause split off"],
-  ["Myocardial infarction was ruled out; however, the patient reported cephalalgia and pruritus that persisted for 3 days.", "Several jargon terms"],
-  ["Follow up as directed.", "Already simple: expect no edits"],
-  ["The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain. Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment.", "Two sentences"],
+  ["The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain and cephalalgia. Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment. Myocardial infarction was ruled out; however, the patient reported pruritus that persisted for 3 days.", "All operations together: relative clause, jargon adjective, abbreviation, condition + cause, several jargon terms"],
 ];
 const EDGE_NAMES = {contrast:"contrast",elaboration:"elaboration",condition:"condition",cause:"cause",sequence:"sequence",syn_down:"syntax link",next:"word order"};
 const KINDS = ["ROOT","RELCL","CONJ_CL","ADVCL","CCOMP","ACL","LEX","NOM","AMOD","CPLX"];
@@ -511,6 +518,27 @@ function renderAll(){
   renderFacts(); renderDoc(); renderTermList(); renderSentence(); renderApplyAll();
 }
 
+
+/* ---------- patient profile (Health Literacy module) ---------- */
+const PRESET_VALUES = {balanced:{c:.6,d:.5,t:0,s:false}, low_literacy:{c:.15,d:.5,t:0,s:false}, specialized_digital:{c:.5,d:.9,t:0,s:false},
+  specialized_functional:{c:.5,d:.1,t:0,s:false}, transitional:{c:.4,d:.5,t:.8,s:false}, spiritual_first:{c:.3,d:.5,t:0,s:true}};
+function profileBody(){
+  if(!$('pp').value && !$('prof').open) return null;
+  if(!$('pp').value && +$('pc').value===.5 && +$('pd').value===.5 && +$('pt').value===0 && !$('psp').checked) return null;
+  return {core_proficiency:+$('pc').value, digital_preference:+$('pd').value, topic_variance:+$('pt').value, spiritual_first:$('psp').checked};
+}
+['pc','pd','pt'].forEach(id => $(id).oninput = () => { $(id+'v').textContent = $(id).value; });
+$('pp').onchange = () => { const v = PRESET_VALUES[$('pp').value]; if(!v) return;
+  $('pc').value=v.c; $('pd').value=v.d; $('pt').value=v.t; $('psp').checked=v.s;
+  ['pc','pd','pt'].forEach(id => $(id+'v').textContent = $(id).value); };
+function renderProfileReport(j){
+  const r = j.profile_report, box = $('prep'); if(!r){ box.textContent=''; return; }
+  let t = `Profile: ${r.archetype} | FKGL ${r.fkgl.toFixed(1)} (target ${r.target_band[0]}-${r.target_band[1]}) | RVS ${r.rvs.toFixed(2)} | RTS ${r.rts.toFixed(2)} | `
+        + (r.needs_revision ? 'flagged for revision (readability only, not a safety verdict): ' + r.reasons.join('; ') : 'meets profile targets');
+  const v = j.profile_revision; if(v && v.attempted) t += ` | LLM revision ${v.accepted ? 'accepted' : 'discarded (' + v.reason + ')'}`;
+  box.textContent = t; $('prof').open = true;
+}
+
 /* ---------- wiring ---------- */
 async function run(){
   const text = $('input').value.trim();
@@ -518,10 +546,10 @@ async function run(){
   if(!text){ showErr('Enter some clinical text first.'); return; }
   $('go').disabled = true; $('go').textContent = 'Simplifying…';
   try{
-    const r = await fetch('/api/simplify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, rewriter: $('rw').value, apply_all: $('cov').value==='all'})});
+    const r = await fetch('/api/simplify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, rewriter: $('rw').value, apply_all: $('cov').value==='all', profile: profileBody(), revise: $('prv').checked})});
     const j = await r.json();
     if(!r.ok) throw new Error(j.error || r.statusText);
-    DATA = j; SEL = 0; ACTIVE_OP = ACTIVE_NODE = null; buildTerms(j.terms); renderAll();
+    DATA = j; SEL = 0; ACTIVE_OP = ACTIVE_NODE = null; buildTerms(j.terms); renderAll(); renderProfileReport(j); if(j.note) $('rwnote').textContent = j.note;
   }catch(e){
     showErr(`${e.message}. Check that the server is running: python dashboard/server.py`);
   }finally{
@@ -533,20 +561,18 @@ function setMode(m){
   MODE=m; $('t-red').setAttribute('aria-selected', m==='red'); $('t-clean').setAttribute('aria-selected', m==='clean');
   if(DATA) renderDoc();
 }
-$('ex').innerHTML = EXAMPLES.map((e,i)=>`<option value="${i}">${esc(e[1])}</option>`).join('');
-$('ex').onchange = () => { $('input').value = EXAMPLES[$('ex').value][0]; run(); };
+$('input').value = EXAMPLES[0][0];     // single merged example: every operation type is present and all are applied
 $('go').onclick = run;
 $('input').addEventListener('keydown', e => { if(e.key==='Enter' && (e.ctrlKey||e.metaKey)) run(); });
 $('gl').onchange = () => { SHOWTERMS = $('gl').checked; if(DATA){ renderDoc(); renderTermList(); } };
 $('t-red').onclick = () => setMode('red'); $('t-clean').onclick = () => setMode('clean');
 function setupRewriter(h){
-  HEALTH = h; const l = h.llm || {configured:false}, rw = $('rw'), note = $('rwnote');
-  if(!l.configured){ note.textContent=''; return; }
+  HEALTH = h; const l = h.llm || {configured:false}, note = $('rwnote');
+  if(!l.configured){ note.textContent = 'Rules only (no LLM configured).'; return; }
   const ok = l.reachable && l.model_available !== false;
-  rw.innerHTML = `<option value="rules">Rules (offline)</option><option value="llm" ${ok?'':'disabled'}>LLM: ${esc(l.model)}${ok?'':' (unavailable)'}</option>`;
-  if(ok){ rw.value='llm'; note.textContent = 'LLM mode rewrites individual terms with the model; the policy still decides where, and the safety check can still block any edit. Skipped term nodes are also tried (the policy was trained on the rule rewriter).'; }
-  else note.textContent = !l.reachable ? `LLM not reachable at ${l.base_url}. Start Ollama (ollama serve) and pull the model: ollama pull ${l.model}, then reload.`
-                                       : `Model ${l.model} is not on the server. Run: ollama pull ${l.model}, then reload.`;
+  note.textContent = ok ? `Merged mode: rules + LLM (${l.model}). Every edit still has to pass the safety check.`
+    : (!l.reachable ? `LLM not reachable at ${l.base_url}: running rules only. Start Ollama (ollama serve) and ollama pull ${l.model}, then reload.`
+                    : `Model ${l.model} is not on the server: running rules only. Run: ollama pull ${l.model}`);
 }
 fetch('/api/health').then(r=>r.json()).then(h=>{
   setupRewriter(h);

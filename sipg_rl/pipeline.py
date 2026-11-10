@@ -1,6 +1,7 @@
 """End-to-end SIPG-RL: text -> sentence graphs -> learned traversal -> verified, audited output."""
 from __future__ import annotations
 from dataclasses import dataclass, field
+import copy
 import dataclasses
 import spacy, torch
 from .env import SimplifyEnv, EnvConfig, make_env
@@ -12,6 +13,8 @@ from .verifier import FidelityVerifier
 from .model import SIPGPolicy
 from .baselines import (LearnedPolicy, LearnedThenSweep, RandomPolicy, GreedyReadabilityPolicy, InvokeAllPolicy)
 from .glossary import collect as collect_terms
+from .patient_profile import (PatientProfile, ProfileSuitabilityScorer, profile_report, build_system_prompt,
+                              span_style_suffix)
 
 
 def default_parts(target_grade=6.0, cfg=None, nli=None, realizer=None, scorer=None, encoder=None,
@@ -61,6 +64,23 @@ class SimplifyResult:
     text: str
     sentences: list = field(default_factory=list)   # per-sentence dicts incl. audit trail
     terms: list = field(default_factory=list)       # glossary entries found in the OUTPUT text (info boxes)
+    profile: dict | None = None                     # Health Literacy module: the profile this run was conditioned on
+    profile_report: dict | None = None              # FKGL / RVS / RTS vs the profile targets (+ needs_revision flag)
+    profile_revision: dict | None = None            # document-level LLM revision attempt (accepted only if verified)
+
+
+def _with_scorer(rz, scorer):
+    """Shallow copy of a realizer whose candidate-choosing scorer is `scorer` (the shared realizer is never mutated)."""
+    rz2 = copy.copy(rz)
+    if hasattr(rz2, "scorer"):
+        rz2.scorer = scorer
+    rules = getattr(rz2, "rules", None)
+    if rules is not None:
+        r2 = copy.copy(rules)
+        if hasattr(r2, "scorer"):
+            r2.scorer = scorer
+        rz2.rules = r2
+    return rz2
 
 
 class SIPGRL:
@@ -75,9 +95,59 @@ class SIPGRL:
     def save(self, path):
         torch.save(self.policy.state_dict(), path)
 
-    def simplify(self, text: str, apply_all: bool = False) -> SimplifyResult:
-        """apply_all=True: after the policy stops, fire every remaining node's prompt (verifier still gates each edit)."""
-        p = self.parts
+    def simplify(self, text: str, apply_all: bool = False, profile=None, revise: bool = False) -> SimplifyResult:
+        """apply_all=True: after the policy stops, fire every remaining node's prompt (verifier still gates each edit).
+
+        profile (PatientProfile | dict | None): Health Literacy module. Conditions the GENERATION layer (LLM style hint)
+        and the EVALUATION scorer (target FKGL band) only. The verifier object `parts["verifier"]` is used unchanged and
+        never receives the profile. revise=True additionally tries ONE document-level LLM rewrite under the profile
+        prompt (coherence / spiritual-first ordering); it is kept only if the profile-blind verifier accepts it."""
+        profile = PatientProfile.from_dict(profile) if profile is not None else None
+        p, llm, prev_suffix, styled = self.parts, None, "", False
+        if profile is not None:
+            sc = ProfileSuitabilityScorer(p["scorer"], profile)
+            p = {**p, "scorer": sc, "realizer": _with_scorer(p["realizer"], sc)}
+            llm = getattr(p["realizer"], "llm", None)
+            styled = llm is not None and hasattr(llm, "style_suffix")     # plain callables just ignore the hint
+            prev_suffix = llm.style_suffix if styled else ""
+            if styled:
+                llm.style_suffix = span_style_suffix(profile)
+        try:
+            res = self._simplify(text, apply_all, p)
+        finally:
+            if profile is not None and styled:
+                llm.style_suffix = prev_suffix
+        if profile is not None:
+            self._apply_profile(res, text, profile, p, revise, llm)
+        return res
+
+    def _apply_profile(self, res, source, profile, p, revise, llm):
+        rep = profile_report(res.text, profile)
+        res.profile = profile.to_dict()
+        res.profile_revision = dict(attempted=False, accepted=False, reason="")
+        want = revise and (rep.needs_revision or profile.spiritual_first)
+        if want and llm is not None and hasattr(llm, "rewrite_document"):
+            cand = llm.rewrite_document(build_system_prompt(profile), res.text)
+            rv = dict(attempted=True, accepted=False, before=res.text, after=cand, violations=[], reason="")
+            if not cand:
+                rv["reason"] = "LLM returned nothing"
+            else:
+                # profile-blind safety gate, checked against the ORIGINAL source text
+                vr = p["verifier"].check(source, cand, use_nli=True)
+                new = profile_report(cand, profile)
+                rv["violations"] = vr.violations
+                if not vr.ok:
+                    rv["reason"] = "rejected by verifier"
+                elif not profile.spiritual_first and len(new.reasons) > len(rep.reasons):
+                    rv["reason"] = "revision did not improve the profile targets"
+                else:
+                    rv["accepted"], rv["reason"] = True, "ok"
+                    res.text, rep = cand, new
+                    res.terms = collect_terms(res.text)
+            res.profile_revision = rv
+        res.profile_report = rep.to_dict()
+
+    def _simplify(self, text: str, apply_all: bool, p) -> SimplifyResult:
         doc = p["nlp"](text)
         outs, records = [], []
         for sent in doc.sents:

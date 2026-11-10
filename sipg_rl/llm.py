@@ -77,6 +77,7 @@ class OpenAICompatLLM:
         self.timeout, self.temperature, self.max_tokens = timeout, temperature, max_tokens
         self.cache, self.cache_path = {}, cache_path
         self.lexical_context_free = True
+        self.style_suffix = ""          # patient-profile style hint (set per request by SIPGRL.simplify(profile=...))
         if cache_path and os.path.exists(cache_path):                 # Task 23: reproducible, cheap re-runs
             for line in open(cache_path):
                 try:
@@ -115,10 +116,13 @@ class OpenAICompatLLM:
         """mode: None (legacy span rewrite) | 'lexical' (<=4-word swap) | 'clause' (split only). Lexical answers are cached
         per span text, ignoring the sentence (so repeated terms hit the cache); set lexical_context_free=False to disable."""
         system = {"lexical": SYSTEM_LEXICAL, "clause": SYSTEM_CLAUSE}.get(mode, SYSTEM)
+        suffix = getattr(self, "style_suffix", "")
+        if suffix:
+            system = system + " Patient style: " + suffix
         if mode == "lexical" and getattr(self, "lexical_context_free", True):
-            key = ("lexical", text.strip().lower())
+            key = ("lexical", text.strip().lower()) + ((suffix,) if suffix else ())   # old cache files stay valid
         else:
-            key = (mode, prompt, text, context)
+            key = (mode, prompt, text, context) + ((suffix,) if suffix else ())
         if key in self.cache:
             self.stats["cache_hits"] += 1
             return self.cache[key]
@@ -158,5 +162,25 @@ class OpenAICompatLLM:
             self.stats["errors"] += 1
             self.stats["last_error"] = f"{type(e).__name__}: {e}"
             return {}
+        self.cache[key] = out
+        return out
+
+    def rewrite_document(self, system: str, text: str, max_tokens: int = 600) -> str:
+        """Document-level rewrite under a profile system prompt (Health Literacy module). Returns '' on any error.
+        The caller MUST verify the result with the (profile-blind) FidelityVerifier before using it."""
+        key = ("doc", system, text)
+        if key in self.cache:
+            self.stats["cache_hits"] += 1
+            return self.cache[key]
+        try:
+            data = self._request("/chat/completions", dict(
+                model=self.model, temperature=0.0, max_tokens=max_tokens, stream=False,
+                messages=[{"role": "system", "content": system},
+                          {"role": "user", "content": "Rewrite the following text. Output ONLY the rewritten text.\n\n" + text}]))
+            out = (data["choices"][0]["message"]["content"] or "").strip()
+        except Exception as e:
+            self.stats["errors"] += 1
+            self.stats["last_error"] = f"{type(e).__name__}: {e}"
+            return ""
         self.cache[key] = out
         return out

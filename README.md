@@ -60,6 +60,46 @@ A3 gold-audit triage script, lexicon miner + blocklist audit + coverage (D1/D3),
 Paper sentence: *safety is measured by deterministic gates and injected hazards, not clinician adjudication; verifier recall is bounded by the injection taxonomy and is an upper bound on true recall.*
 
 
+## Health Literacy and Patient Profile module (new)
+
+**Invariant.** The patient profile conditions the **Generation layer** (LLM prompts) and the **Evaluation scorer** (target FKGL band,
+RVS/RTS targets). It is **never** passed to `FidelityVerifier`, which stays profile-blind, so personalisation cannot bypass a safety
+check. A text that misses profile targets is *flagged for revision* (`needs_revision`), never safety-rejected. `tests/test_patient_profile.py`
+enforces this (verifier signature + source contain no "profile"; verdict depends only on `(source, output)`).
+
+| piece | file | notes |
+|---|---|---|
+| Profile schema (core proficiency, coherence need, spiritual-first, digital vs functional, adaptability, topic variance) | `sipg_rl/patient_profile.py` | continuous [0,1] dimensions; archetype derived: Balanced / Specialized / Transitional |
+| RVS / RTS / FKGL | `sipg_rl/coherence.py` | RVS = std of per-sentence FKGL; RTS = mean abs change between adjacent sentences. **My operational definitions** - edit `rvs`/`rts` if your paper defines them differently |
+| Profile -> prompts | `build_system_prompt` (document level), `span_style_suffix` (span level) | 4th-6th grade, steady flow, transitional scaffold, spiritual-first order, digital/functional formatting, safety footer |
+| Profile -> scorer | `ProfileSuitabilityScorer` | `S = (1-w)*base + w*band(FKGL)`; works with any base scorer |
+| Report | `profile_report(text, profile)` | FKGL in band, RVS/RTS vs caps, `needs_revision` + reasons |
+| Pipeline | `SIPGRL.simplify(text, profile=..., revise=False)` | `revise=True`: one document-level LLM rewrite, kept ONLY if the profile-blind verifier accepts it against the original source |
+| LLM | `OpenAICompatLLM.style_suffix`, `.rewrite_document()` | cache keys include the suffix (old cache files stay valid) |
+| Dashboard | `dashboard/server.py`, `index.html` | POST `/api/simplify {"profile": {...}, "revise": true}`; response adds `profile_report`, `profile_revision` |
+
+```
+python scripts/demo.py "The patient takes lisinopril 10 mg BID ..." --profile low_literacy
+python scripts/demo.py "..." --profile spiritual_first --revise --llm-model qwen2.5:7b-instruct
+python scripts/demo.py "..." --profile '{"core_proficiency":0.2,"coherence_need":"steady"}'
+python scripts/profile_eval.py --jsonl medeasi_test.jsonl --src-field Expert --limit 100 --out eval_profile
+python -m pytest tests/test_patient_profile.py -q
+```
+Presets: `balanced, low_literacy, specialized_digital, specialized_functional, transitional, spiritual_first`.
+
+**Defaults to calibrate, not validated constants:** grade bands (low 4-6 per the module spec; mid 6-8 and high 8-10 are my assumption),
+steady-flow caps (RVS <= 3.0, RTS <= 3.5), archetype thresholds (`TRANSITIONAL_VARIANCE=0.6`, `SPECIALIZED_GAP=0.3`). Fit the caps from
+reference simplifications with `coherence.calibrate_coherence(refs, 0.75)`, the same way the S bands are fitted.
+**Not done:** learning the profile from patient interaction (you supply the profile); retraining the PPO policy with the profile in the
+state (the policy is unchanged - the profile only shifts S at inference and the LLM prompts); RVS/RTS are document-level post-hoc checks,
+not part of the per-sentence RL reward.
+
+**Merged mode (no switches).** The dashboard and `scripts/demo.py` / `scripts/profile_eval.py` now always apply ALL operations (clause splits,
+jargon, adjective+noun phrases, long words) with rules first and the LLM as constrained fallback when reachable (rules only otherwise), and try the
+profile revision when an LLM is in use. Every edit and the revision still pass the profile-blind verifier. `demo.py --selective` restores the
+policy-decides behaviour; `SIPGRL.simplify()` keeps `apply_all=False` as its default so evaluation scripts are unchanged.
+Limit: still a single pass (output is not re-parsed), so clauses created by a split are not split again.
+
 ## Paper component -> code
 | Proposal | Module | Notes |
 |---|---|---|

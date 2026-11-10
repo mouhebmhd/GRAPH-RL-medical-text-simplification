@@ -11,6 +11,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 from sipg_rl.pipeline import SIPGRL, default_parts  # noqa: E402
 from sipg_rl.llm import OpenAICompatLLM  # noqa: E402
+from sipg_rl.patient_profile import PatientProfile, PRESETS  # noqa: E402
 from sipg_rl.realize import HybridRealizer, RuleRealizer  # noqa: E402
 from sipg_rl import glossary  # noqa: E402
 
@@ -78,30 +79,31 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
-            text, mode = (body.get("text") or "").strip(), body.get("rewriter", "rules")
-            apply_all = bool(body.get("apply_all", False))
-            if mode not in STATE["models"]:
-                return self._send(400, json.dumps({"error": f"rewriter '{mode}' is not available on this server"}))
+            text = (body.get("text") or "").strip()
+            # ONE merged mode (no switches): every operation is applied (clauses, jargon, adjective+noun, long words), rules first
+            # with the LLM as constrained fallback whenever it is reachable; each edit still passes the profile-blind verifier.
+            apply_all, mode, note = True, "rules", ""
+            if "llm" in STATE["models"]:
+                h = STATE["llm"].health()
+                if h["reachable"] and h["model_available"] is not False:
+                    mode = "llm"
+                else:
+                    note = f"LLM not available ({h['error'] or 'model missing'}): used rules only."
+            profile = PatientProfile.from_dict(body["profile"]) if body.get("profile") else None   # Health Literacy module
+            revise = bool(body.get("revise", True))       # merged: profile revision is attempted whenever an LLM is in use
             if not text:
                 return self._send(400, json.dumps({"error": "empty input"}))
             if len(text) > MAX_CHARS:
                 return self._send(400, json.dumps({"error": f"input too long (max {MAX_CHARS} characters)"}))
-            if mode == "llm":
-                h = STATE["llm"].health()
-                if not h["reachable"]:
-                    return self._send(503, json.dumps({"error": f"LLM server not reachable at {h['base_url']} ({h['error']}). "
-                                                       "Start it (for Ollama: `ollama serve`) or switch to Rules."}))
-                if h["model_available"] is False:
-                    return self._send(503, json.dumps({"error": f"model '{h['model']}' not found on the LLM server. "
-                                                       f"For Ollama run: ollama pull {h['model']}"}))
             t0 = time.time()
             with LOCK:
                 if mode == "llm":
                     STATE["llm"].reset_stats()
-                res = STATE["models"][mode].simplify(text, apply_all=apply_all)
+                res = STATE["models"][mode].simplify(text, apply_all=apply_all, profile=profile, revise=revise)
                 stats = dict(STATE["llm"].stats, model=STATE["llm"].model) if mode == "llm" else None
-            out = {"input": text, "output": res.text, "sentences": res.sentences, "rewriter": mode, "apply_all": apply_all,
-                   "llm_stats": stats, "terms": res.terms, "seconds": round(time.time() - t0, 3)}
+            out = {"input": text, "output": res.text, "sentences": res.sentences, "rewriter": mode, "apply_all": apply_all, "note": note,
+                   "llm_stats": stats, "terms": res.terms, "seconds": round(time.time() - t0, 3),
+                   "profile": res.profile, "profile_report": res.profile_report, "profile_revision": res.profile_revision}
             self._send(200, json.dumps(out, default=jdefault))
         except Exception as e:  # surface errors in the UI instead of a dead request
             self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}))

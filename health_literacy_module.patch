@@ -1,0 +1,910 @@
+--- a/sipg_rl/pipeline.py
++++ b/sipg_rl/pipeline.py
+@@ -1,6 +1,7 @@
+ """End-to-end SIPG-RL: text -> sentence graphs -> learned traversal -> verified, audited output."""
+ from __future__ import annotations
+ from dataclasses import dataclass, field
++import copy
+ import dataclasses
+ import spacy, torch
+ from .env import SimplifyEnv, EnvConfig, make_env
+@@ -12,6 +13,8 @@
+ from .model import SIPGPolicy
+ from .baselines import (LearnedPolicy, LearnedThenSweep, RandomPolicy, GreedyReadabilityPolicy, InvokeAllPolicy)
+ from .glossary import collect as collect_terms
++from .patient_profile import (PatientProfile, ProfileSuitabilityScorer, profile_report, build_system_prompt,
++                              span_style_suffix)
+ 
+ 
+ def default_parts(target_grade=6.0, cfg=None, nli=None, realizer=None, scorer=None, encoder=None,
+@@ -61,6 +64,23 @@
+     text: str
+     sentences: list = field(default_factory=list)   # per-sentence dicts incl. audit trail
+     terms: list = field(default_factory=list)       # glossary entries found in the OUTPUT text (info boxes)
++    profile: dict | None = None                     # Health Literacy module: the profile this run was conditioned on
++    profile_report: dict | None = None              # FKGL / RVS / RTS vs the profile targets (+ needs_revision flag)
++    profile_revision: dict | None = None            # document-level LLM revision attempt (accepted only if verified)
++
++
++def _with_scorer(rz, scorer):
++    """Shallow copy of a realizer whose candidate-choosing scorer is `scorer` (the shared realizer is never mutated)."""
++    rz2 = copy.copy(rz)
++    if hasattr(rz2, "scorer"):
++        rz2.scorer = scorer
++    rules = getattr(rz2, "rules", None)
++    if rules is not None:
++        r2 = copy.copy(rules)
++        if hasattr(r2, "scorer"):
++            r2.scorer = scorer
++        rz2.rules = r2
++    return rz2
+ 
+ 
+ class SIPGRL:
+@@ -75,9 +95,59 @@
+     def save(self, path):
+         torch.save(self.policy.state_dict(), path)
+ 
+-    def simplify(self, text: str, apply_all: bool = False) -> SimplifyResult:
+-        """apply_all=True: after the policy stops, fire every remaining node's prompt (verifier still gates each edit)."""
+-        p = self.parts
++    def simplify(self, text: str, apply_all: bool = False, profile=None, revise: bool = False) -> SimplifyResult:
++        """apply_all=True: after the policy stops, fire every remaining node's prompt (verifier still gates each edit).
++
++        profile (PatientProfile | dict | None): Health Literacy module. Conditions the GENERATION layer (LLM style hint)
++        and the EVALUATION scorer (target FKGL band) only. The verifier object `parts["verifier"]` is used unchanged and
++        never receives the profile. revise=True additionally tries ONE document-level LLM rewrite under the profile
++        prompt (coherence / spiritual-first ordering); it is kept only if the profile-blind verifier accepts it."""
++        profile = PatientProfile.from_dict(profile) if profile is not None else None
++        p, llm, prev_suffix, styled = self.parts, None, "", False
++        if profile is not None:
++            sc = ProfileSuitabilityScorer(p["scorer"], profile)
++            p = {**p, "scorer": sc, "realizer": _with_scorer(p["realizer"], sc)}
++            llm = getattr(p["realizer"], "llm", None)
++            styled = llm is not None and hasattr(llm, "style_suffix")     # plain callables just ignore the hint
++            prev_suffix = llm.style_suffix if styled else ""
++            if styled:
++                llm.style_suffix = span_style_suffix(profile)
++        try:
++            res = self._simplify(text, apply_all, p)
++        finally:
++            if profile is not None and styled:
++                llm.style_suffix = prev_suffix
++        if profile is not None:
++            self._apply_profile(res, text, profile, p, revise, llm)
++        return res
++
++    def _apply_profile(self, res, source, profile, p, revise, llm):
++        rep = profile_report(res.text, profile)
++        res.profile = profile.to_dict()
++        res.profile_revision = dict(attempted=False, accepted=False, reason="")
++        want = revise and (rep.needs_revision or profile.spiritual_first)
++        if want and llm is not None and hasattr(llm, "rewrite_document"):
++            cand = llm.rewrite_document(build_system_prompt(profile), res.text)
++            rv = dict(attempted=True, accepted=False, before=res.text, after=cand, violations=[], reason="")
++            if not cand:
++                rv["reason"] = "LLM returned nothing"
++            else:
++                # profile-blind safety gate, checked against the ORIGINAL source text
++                vr = p["verifier"].check(source, cand, use_nli=True)
++                new = profile_report(cand, profile)
++                rv["violations"] = vr.violations
++                if not vr.ok:
++                    rv["reason"] = "rejected by verifier"
++                elif not profile.spiritual_first and len(new.reasons) > len(rep.reasons):
++                    rv["reason"] = "revision did not improve the profile targets"
++                else:
++                    rv["accepted"], rv["reason"] = True, "ok"
++                    res.text, rep = cand, new
++                    res.terms = collect_terms(res.text)
++            res.profile_revision = rv
++        res.profile_report = rep.to_dict()
++
++    def _simplify(self, text: str, apply_all: bool, p) -> SimplifyResult:
+         doc = p["nlp"](text)
+         outs, records = [], []
+         for sent in doc.sents:
+--- a/sipg_rl/llm.py
++++ b/sipg_rl/llm.py
+@@ -77,6 +77,7 @@
+         self.timeout, self.temperature, self.max_tokens = timeout, temperature, max_tokens
+         self.cache, self.cache_path = {}, cache_path
+         self.lexical_context_free = True
++        self.style_suffix = ""          # patient-profile style hint (set per request by SIPGRL.simplify(profile=...))
+         if cache_path and os.path.exists(cache_path):                 # Task 23: reproducible, cheap re-runs
+             for line in open(cache_path):
+                 try:
+@@ -115,10 +116,13 @@
+         """mode: None (legacy span rewrite) | 'lexical' (<=4-word swap) | 'clause' (split only). Lexical answers are cached
+         per span text, ignoring the sentence (so repeated terms hit the cache); set lexical_context_free=False to disable."""
+         system = {"lexical": SYSTEM_LEXICAL, "clause": SYSTEM_CLAUSE}.get(mode, SYSTEM)
++        suffix = getattr(self, "style_suffix", "")
++        if suffix:
++            system = system + " Patient style: " + suffix
+         if mode == "lexical" and getattr(self, "lexical_context_free", True):
+-            key = ("lexical", text.strip().lower())
++            key = ("lexical", text.strip().lower()) + ((suffix,) if suffix else ())   # old cache files stay valid
+         else:
+-            key = (mode, prompt, text, context)
++            key = (mode, prompt, text, context) + ((suffix,) if suffix else ())
+         if key in self.cache:
+             self.stats["cache_hits"] += 1
+             return self.cache[key]
+@@ -160,3 +164,23 @@
+             return {}
+         self.cache[key] = out
+         return out
++
++    def rewrite_document(self, system: str, text: str, max_tokens: int = 600) -> str:
++        """Document-level rewrite under a profile system prompt (Health Literacy module). Returns '' on any error.
++        The caller MUST verify the result with the (profile-blind) FidelityVerifier before using it."""
++        key = ("doc", system, text)
++        if key in self.cache:
++            self.stats["cache_hits"] += 1
++            return self.cache[key]
++        try:
++            data = self._request("/chat/completions", dict(
++                model=self.model, temperature=0.0, max_tokens=max_tokens, stream=False,
++                messages=[{"role": "system", "content": system},
++                          {"role": "user", "content": "Rewrite the following text. Output ONLY the rewritten text.\n\n" + text}]))
++            out = (data["choices"][0]["message"]["content"] or "").strip()
++        except Exception as e:
++            self.stats["errors"] += 1
++            self.stats["last_error"] = f"{type(e).__name__}: {e}"
++            return ""
++        self.cache[key] = out
++        return out
+--- a/dashboard/server.py
++++ b/dashboard/server.py
+@@ -11,6 +11,7 @@
+ sys.path.insert(0, ROOT)
+ from sipg_rl.pipeline import SIPGRL, default_parts  # noqa: E402
+ from sipg_rl.llm import OpenAICompatLLM  # noqa: E402
++from sipg_rl.patient_profile import PatientProfile, PRESETS  # noqa: E402
+ from sipg_rl.realize import HybridRealizer, RuleRealizer  # noqa: E402
+ from sipg_rl import glossary  # noqa: E402
+ 
+@@ -80,6 +81,8 @@
+             body = json.loads(self.rfile.read(n) or b"{}")
+             text, mode = (body.get("text") or "").strip(), body.get("rewriter", "rules")
+             apply_all = bool(body.get("apply_all", False))
++            profile = PatientProfile.from_dict(body["profile"]) if body.get("profile") else None   # Health Literacy module
++            revise = bool(body.get("revise", False))
+             if mode not in STATE["models"]:
+                 return self._send(400, json.dumps({"error": f"rewriter '{mode}' is not available on this server"}))
+             if not text:
+@@ -98,10 +101,11 @@
+             with LOCK:
+                 if mode == "llm":
+                     STATE["llm"].reset_stats()
+-                res = STATE["models"][mode].simplify(text, apply_all=apply_all)
++                res = STATE["models"][mode].simplify(text, apply_all=apply_all, profile=profile, revise=revise)
+                 stats = dict(STATE["llm"].stats, model=STATE["llm"].model) if mode == "llm" else None
+             out = {"input": text, "output": res.text, "sentences": res.sentences, "rewriter": mode, "apply_all": apply_all,
+-                   "llm_stats": stats, "terms": res.terms, "seconds": round(time.time() - t0, 3)}
++                   "llm_stats": stats, "terms": res.terms, "seconds": round(time.time() - t0, 3),
++                   "profile": res.profile, "profile_report": res.profile_report, "profile_revision": res.profile_revision}
+             self._send(200, json.dumps(out, default=jdefault))
+         except Exception as e:  # surface errors in the UI instead of a dead request
+             self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}))
+--- a/dashboard/index.html
++++ b/dashboard/index.html
+@@ -139,6 +139,21 @@
+       <label class="hint"><input type="checkbox" id="gl" checked> Explain medical terms</label>
+       <span class="hint">Ctrl+Enter also runs it.</span>
+     </div>
++    <details id="prof" style="margin-top:10px"><summary class="hint">Patient profile (Health Literacy) - optional</summary>
++      <div class="row" style="margin-top:8px">
++        <label class="hint" for="pp">Preset</label>
++        <select id="pp" aria-label="Profile preset"><option value="">None (no profile)</option><option value="balanced">Balanced</option><option value="low_literacy">Low literacy</option><option value="specialized_digital">Specialized: digital</option><option value="specialized_functional">Specialized: functional</option><option value="transitional">Transitional</option><option value="spiritual_first">Spiritual-first</option></select>
++        <label class="hint" for="pc">Core proficiency <span id="pcv">0.5</span></label>
++        <input type="range" id="pc" min="0" max="1" step="0.05" value="0.5" aria-label="Core proficiency">
++        <label class="hint" for="pd">Digital preference <span id="pdv">0.5</span></label>
++        <input type="range" id="pd" min="0" max="1" step="0.05" value="0.5" aria-label="Digital preference">
++        <label class="hint" for="pt">Topic variance <span id="ptv">0</span></label>
++        <input type="range" id="pt" min="0" max="1" step="0.05" value="0" aria-label="Topic variance">
++        <label class="hint"><input type="checkbox" id="psp"> Spiritual-first</label>
++        <label class="hint"><input type="checkbox" id="prv"> Try LLM revision (needs Rewriter = LLM)</label>
++      </div>
++      <div class="hint" id="prep" style="margin-top:6px"></div>
++    </details>
+     <div class="hint" id="rwnote" style="margin-top:8px"></div>
+     <div id="alert" role="alert" style="margin-top:12px"></div>
+   </section>
+@@ -511,6 +526,27 @@
+   renderFacts(); renderDoc(); renderTermList(); renderSentence(); renderApplyAll();
+ }
+ 
++
++/* ---------- patient profile (Health Literacy module) ---------- */
++const PRESET_VALUES = {balanced:{c:.6,d:.5,t:0,s:false}, low_literacy:{c:.15,d:.5,t:0,s:false}, specialized_digital:{c:.5,d:.9,t:0,s:false},
++  specialized_functional:{c:.5,d:.1,t:0,s:false}, transitional:{c:.4,d:.5,t:.8,s:false}, spiritual_first:{c:.3,d:.5,t:0,s:true}};
++function profileBody(){
++  if(!$('pp').value && !$('prof').open) return null;
++  if(!$('pp').value && +$('pc').value===.5 && +$('pd').value===.5 && +$('pt').value===0 && !$('psp').checked) return null;
++  return {core_proficiency:+$('pc').value, digital_preference:+$('pd').value, topic_variance:+$('pt').value, spiritual_first:$('psp').checked};
++}
++['pc','pd','pt'].forEach(id => $(id).oninput = () => { $(id+'v').textContent = $(id).value; });
++$('pp').onchange = () => { const v = PRESET_VALUES[$('pp').value]; if(!v) return;
++  $('pc').value=v.c; $('pd').value=v.d; $('pt').value=v.t; $('psp').checked=v.s;
++  ['pc','pd','pt'].forEach(id => $(id+'v').textContent = $(id).value); };
++function renderProfileReport(j){
++  const r = j.profile_report, box = $('prep'); if(!r){ box.textContent=''; return; }
++  let t = `Profile: ${r.archetype} | FKGL ${r.fkgl.toFixed(1)} (target ${r.target_band[0]}-${r.target_band[1]}) | RVS ${r.rvs.toFixed(2)} | RTS ${r.rts.toFixed(2)} | `
++        + (r.needs_revision ? 'flagged for revision (readability only, not a safety verdict): ' + r.reasons.join('; ') : 'meets profile targets');
++  const v = j.profile_revision; if(v && v.attempted) t += ` | LLM revision ${v.accepted ? 'accepted' : 'discarded (' + v.reason + ')'}`;
++  box.textContent = t; $('prof').open = true;
++}
++
+ /* ---------- wiring ---------- */
+ async function run(){
+   const text = $('input').value.trim();
+@@ -518,10 +554,10 @@
+   if(!text){ showErr('Enter some clinical text first.'); return; }
+   $('go').disabled = true; $('go').textContent = 'Simplifying…';
+   try{
+-    const r = await fetch('/api/simplify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, rewriter: $('rw').value, apply_all: $('cov').value==='all'})});
++    const r = await fetch('/api/simplify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, rewriter: $('rw').value, apply_all: $('cov').value==='all', profile: profileBody(), revise: $('prv').checked})});
+     const j = await r.json();
+     if(!r.ok) throw new Error(j.error || r.statusText);
+-    DATA = j; SEL = 0; ACTIVE_OP = ACTIVE_NODE = null; buildTerms(j.terms); renderAll();
++    DATA = j; SEL = 0; ACTIVE_OP = ACTIVE_NODE = null; buildTerms(j.terms); renderAll(); renderProfileReport(j);
+   }catch(e){
+     showErr(`${e.message}. Check that the server is running: python dashboard/server.py`);
+   }finally{
+--- a/scripts/demo.py
++++ b/scripts/demo.py
+@@ -1,7 +1,8 @@
+ """Simplify free text with a trained policy and print the audit trail (the traversal path)."""
+ import argparse, os, sys
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+-from sipg_rl.pipeline import SIPGRL
++from sipg_rl.pipeline import SIPGRL, default_parts
++from sipg_rl.patient_profile import load_profile, PRESETS, build_system_prompt
+ 
+ DEFAULT = ("The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain. "
+            "Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment.")
+@@ -10,9 +11,29 @@
+     ap = argparse.ArgumentParser()
+     ap.add_argument("text", nargs="?", default=DEFAULT)
+     ap.add_argument("--ckpt", default="sipg_policy.pt")
++    ap.add_argument("--profile", default=None, help=f"preset ({', '.join(PRESETS)}), a .json file, or inline JSON")
++    ap.add_argument("--revise", action="store_true", help="try one document-level LLM revision under the profile (needs --llm-model)")
++    ap.add_argument("--llm-model", default=None, help="e.g. qwen2.5:7b-instruct (Ollama); enables the hybrid realizer")
++    ap.add_argument("--llm-url", default="http://localhost:11434/v1")
+     a = ap.parse_args()
+-    m = SIPGRL(checkpoint=a.ckpt if os.path.exists(a.ckpt) else None)
+-    res = m.simplify(a.text)
++    parts = None
++    if a.llm_model:
++        from sipg_rl.llm import OpenAICompatLLM
++        from sipg_rl.realize import HybridRealizer, RuleRealizer
++        parts = default_parts(realizer=HybridRealizer(OpenAICompatLLM(a.llm_url, a.llm_model), RuleRealizer()))
++    m = SIPGRL(parts, checkpoint=a.ckpt if os.path.exists(a.ckpt) else None)
++    prof = load_profile(a.profile)
++    if prof:
++        print(f"PROFILE: {prof.name or 'custom'} -> archetype={prof.archetype}, level={prof.proficiency_level}, "
++              f"steady_flow={prof.steady_flow}, targets={prof.targets()}")
++        print("GENERATION PROMPT:", build_system_prompt(prof), "\n")
++    res = m.simplify(a.text, profile=prof, revise=a.revise)
++    if res.profile_report:
++        r = res.profile_report
++        print(f"PROFILE REPORT: FKGL {r['fkgl']:.1f} (target {r['target_band']}), RVS {r['rvs']:.2f}, RTS {r['rts']:.2f}, "
++              f"needs_revision={r['needs_revision']} {r['reasons']}")
++        if res.profile_revision and res.profile_revision.get("attempted"):
++            print("LLM REVISION:", res.profile_revision["reason"], res.profile_revision.get("violations"))
+     print("OUTPUT:", res.text, "\n")
+     for s in res.sentences:
+         print(f"SOURCE : {s['source']}\nOUTPUT : {s['output']}")
+--- a/README.md
++++ b/README.md
+@@ -60,6 +60,40 @@
+ Paper sentence: *safety is measured by deterministic gates and injected hazards, not clinician adjudication; verifier recall is bounded by the injection taxonomy and is an upper bound on true recall.*
+ 
+ 
++## Health Literacy and Patient Profile module (new)
++
++**Invariant.** The patient profile conditions the **Generation layer** (LLM prompts) and the **Evaluation scorer** (target FKGL band,
++RVS/RTS targets). It is **never** passed to `FidelityVerifier`, which stays profile-blind, so personalisation cannot bypass a safety
++check. A text that misses profile targets is *flagged for revision* (`needs_revision`), never safety-rejected. `tests/test_patient_profile.py`
++enforces this (verifier signature + source contain no "profile"; verdict depends only on `(source, output)`).
++
++| piece | file | notes |
++|---|---|---|
++| Profile schema (core proficiency, coherence need, spiritual-first, digital vs functional, adaptability, topic variance) | `sipg_rl/patient_profile.py` | continuous [0,1] dimensions; archetype derived: Balanced / Specialized / Transitional |
++| RVS / RTS / FKGL | `sipg_rl/coherence.py` | RVS = std of per-sentence FKGL; RTS = mean abs change between adjacent sentences. **My operational definitions** - edit `rvs`/`rts` if your paper defines them differently |
++| Profile -> prompts | `build_system_prompt` (document level), `span_style_suffix` (span level) | 4th-6th grade, steady flow, transitional scaffold, spiritual-first order, digital/functional formatting, safety footer |
++| Profile -> scorer | `ProfileSuitabilityScorer` | `S = (1-w)*base + w*band(FKGL)`; works with any base scorer |
++| Report | `profile_report(text, profile)` | FKGL in band, RVS/RTS vs caps, `needs_revision` + reasons |
++| Pipeline | `SIPGRL.simplify(text, profile=..., revise=False)` | `revise=True`: one document-level LLM rewrite, kept ONLY if the profile-blind verifier accepts it against the original source |
++| LLM | `OpenAICompatLLM.style_suffix`, `.rewrite_document()` | cache keys include the suffix (old cache files stay valid) |
++| Dashboard | `dashboard/server.py`, `index.html` | POST `/api/simplify {"profile": {...}, "revise": true}`; response adds `profile_report`, `profile_revision` |
++
++```
++python scripts/demo.py "The patient takes lisinopril 10 mg BID ..." --profile low_literacy
++python scripts/demo.py "..." --profile spiritual_first --revise --llm-model qwen2.5:7b-instruct
++python scripts/demo.py "..." --profile '{"core_proficiency":0.2,"coherence_need":"steady"}'
++python scripts/profile_eval.py --jsonl medeasi_test.jsonl --src-field Expert --limit 100 --out eval_profile
++python -m pytest tests/test_patient_profile.py -q
++```
++Presets: `balanced, low_literacy, specialized_digital, specialized_functional, transitional, spiritual_first`.
++
++**Defaults to calibrate, not validated constants:** grade bands (low 4-6 per the module spec; mid 6-8 and high 8-10 are my assumption),
++steady-flow caps (RVS <= 3.0, RTS <= 3.5), archetype thresholds (`TRANSITIONAL_VARIANCE=0.6`, `SPECIALIZED_GAP=0.3`). Fit the caps from
++reference simplifications with `coherence.calibrate_coherence(refs, 0.75)`, the same way the S bands are fitted.
++**Not done:** learning the profile from patient interaction (you supply the profile); retraining the PPO policy with the profile in the
++state (the policy is unchanged - the profile only shifts S at inference and the LLM prompts); RVS/RTS are document-level post-hoc checks,
++not part of the per-sentence RL reward.
++
+ ## Paper component -> code
+ | Proposal | Module | Notes |
+ |---|---|---|
+--- /dev/null
++++ b/sipg_rl/patient_profile.py
+@@ -0,0 +1,240 @@
++"""Health Literacy and Patient Profile module.
++
++ARCHITECTURAL INVARIANT: a PatientProfile conditions (1) the GENERATION layer (LLM prompts) and (2) the EVALUATION
++scorer (target FKGL band, RVS/RTS targets). It is NEVER passed to `FidelityVerifier`, which stays profile-blind, so
++personalisation cannot weaken a clinical safety check. A text that misses profile targets is *flagged for revision*,
++never safety-rejected (only the verifier rejects). tests/test_patient_profile.py enforces this.
++
++(Named patient_profile.py, not profile.py, to avoid shadowing the stdlib `profile` module.)
++"""
++from __future__ import annotations
++from dataclasses import dataclass, field, asdict
++from .coherence import fkgl, rvs, rts
++
++# ---- heuristic thresholds: DEFAULTS to calibrate on your data, not validated constants ---------------------------
++LOW_PROFICIENCY, HIGH_PROFICIENCY = 0.34, 0.67
++GRADE_BANDS = {"low": (4.0, 6.0), "mid": (6.0, 8.0), "high": (8.0, 10.0)}   # low = 4th-6th grade (module spec)
++STEADY_CAPS = {"rvs_max": 3.0, "rts_max": 3.5}          # grade-level units; replace via calibrate_coherence()
++FLEXIBLE_CAPS = {"rvs_max": None, "rts_max": None}      # no cap
++TRANSITIONAL_VARIANCE = 0.60                            # topic_variance >= this -> Transitional
++SPECIALIZED_GAP = 0.30                                  # |digital_preference - 0.5| >= this -> Specialized
++
++SPIRITUAL_SEQUENCE = ("Begin by validating divine will or spiritual context. Address moral or social implications. "
++                      "Present psychological support as a means of achieving spiritual peace. Finally, introduce "
++                      "biomedical options as complementary tools.")
++SAFETY_FOOTER = ("Never change, drop or add numbers, doses, units, drug names, negations (no, not, without) or hedges "
++                 "(may, possible, if, unless). Do not add medical facts that are not in the source.")
++
++
++def _clip01(x) -> float:
++    return min(1.0, max(0.0, float(x)))
++
++
++@dataclass
++class PatientProfile:
++    """Continuous, multidimensional profile (all scores in [0,1]; 1 = high)."""
++    core_proficiency: float = 0.5      # integrated critical+communicative+expressed health literacy
++    coherence_need: str = "auto"       # 'steady' | 'flexible' | 'auto' (auto: steady if low proficiency / transitional)
++    spiritual_first: bool = False      # explanatory model: divine attribution -> moral/social -> biomedical
++    digital_preference: float = 0.5    # 0 = traditional/functional text pathway, 1 = digital pathway
++    adaptability: float = 0.5          # dynamic: ability to adapt to new terminology over time
++    topic_variance: float = 0.0        # observed variance of the patient's expression across topics (Transitional cue)
++    language: str = "en"
++    name: str = ""
++
++    def __post_init__(self):
++        for f in ("core_proficiency", "digital_preference", "adaptability", "topic_variance"):
++            setattr(self, f, _clip01(getattr(self, f)))
++        if self.coherence_need not in ("steady", "flexible", "auto"):
++            raise ValueError("coherence_need must be 'steady', 'flexible' or 'auto'")
++
++    # ---- construction -------------------------------------------------------------------------------------------
++    @classmethod
++    def from_dict(cls, d: dict | None) -> "PatientProfile":
++        if isinstance(d, PatientProfile):
++            return d
++        known = set(cls.__dataclass_fields__)
++        return cls(**{k: v for k, v in (d or {}).items() if k in known})
++
++    def to_dict(self) -> dict:
++        return asdict(self)
++
++    # ---- derived ------------------------------------------------------------------------------------------------
++    @property
++    def archetype(self) -> str:
++        """Balanced | Specialized | Transitional. Priority: transitional > specialized > balanced."""
++        if self.topic_variance >= TRANSITIONAL_VARIANCE:
++            return "transitional"
++        if abs(self.digital_preference - 0.5) >= SPECIALIZED_GAP:
++            return "specialized"
++        return "balanced"
++
++    @property
++    def proficiency_level(self) -> str:
++        return "low" if self.core_proficiency < LOW_PROFICIENCY else "high" if self.core_proficiency >= HIGH_PROFICIENCY else "mid"
++
++    @property
++    def pathway(self) -> str:
++        return "digital" if self.digital_preference >= 0.5 else "functional"
++
++    @property
++    def steady_flow(self) -> bool:
++        if self.coherence_need != "auto":
++            return self.coherence_need == "steady"
++        return self.archetype == "transitional" or self.proficiency_level == "low"
++
++    def targets(self) -> "ProfileTargets":
++        lo, hi = GRADE_BANDS[self.proficiency_level]
++        caps = STEADY_CAPS if self.steady_flow else FLEXIBLE_CAPS
++        return ProfileTargets(grade_lo=lo, grade_hi=hi, rvs_max=caps["rvs_max"], rts_max=caps["rts_max"])
++
++
++@dataclass
++class ProfileTargets:
++    grade_lo: float
++    grade_hi: float
++    rvs_max: float | None = None
++    rts_max: float | None = None
++
++    @property
++    def grade_mid(self) -> float:
++        return (self.grade_lo + self.grade_hi) / 2
++
++
++PRESETS = {
++    "balanced": PatientProfile(core_proficiency=0.6, name="balanced"),
++    "low_literacy": PatientProfile(core_proficiency=0.15, coherence_need="steady", name="low_literacy"),
++    "specialized_digital": PatientProfile(core_proficiency=0.5, digital_preference=0.9, name="specialized_digital"),
++    "specialized_functional": PatientProfile(core_proficiency=0.5, digital_preference=0.1, name="specialized_functional"),
++    "transitional": PatientProfile(core_proficiency=0.4, topic_variance=0.8, adaptability=0.3, name="transitional"),
++    "spiritual_first": PatientProfile(core_proficiency=0.3, spiritual_first=True, name="spiritual_first"),
++}
++
++
++def load_profile(spec: str | None) -> PatientProfile | None:
++    """'balanced' (preset) | path to a .json file | inline JSON object | None."""
++    import json, os
++    if not spec:
++        return None
++    if spec in PRESETS:
++        return PRESETS[spec]
++    if os.path.exists(spec):
++        return PatientProfile.from_dict(json.load(open(spec, encoding="utf8")))
++    try:
++        return PatientProfile.from_dict(json.loads(spec))
++    except Exception as e:
++        raise ValueError(f"unknown profile '{spec}' (presets: {sorted(PRESETS)}, or a JSON file / inline JSON)") from e
++
++
++# ======================================================================================================================
++# Generation layer: profile -> prompts
++# ======================================================================================================================
++def _readability_line(p: PatientProfile) -> str:
++    t = p.targets()
++    if p.proficiency_level == "low":
++        return "Use a 4th-6th grade vocabulary: short, everyday words and short sentences."
++    return f"Aim for roughly grade {t.grade_lo:.0f}-{t.grade_hi:.0f} reading level in plain language."
++
++
++def _coherence_line(p: PatientProfile) -> str:
++    if p.archetype == "transitional":
++        return ("Use highly structured, predictable sentence formats (same pattern every time, uniform length, no abrupt "
++                "topic shifts) and avoid analogies and metaphors: be a stable scaffold.")
++    if p.steady_flow:
++        return "Keep sentence lengths uniform and avoid abrupt topic shifts."
++    return "Sentence length may vary naturally, but keep the narrative coherent."
++
++
++def _pathway_line(p: PatientProfile) -> str | None:
++    if p.archetype != "specialized":
++        return None
++    if p.pathway == "digital":
++        return ("Use short labelled sections suitable for a screen. Do NOT invent links or URLs; mark where a link would "
++                "help as [link: topic].")
++    return "Use structured, text-only, step-by-step explanations (numbered steps, one idea per step)."
++
++
++def build_system_prompt(p: PatientProfile) -> str:
++    """Document-level system prompt for an LLM pass (the 'Generation Layer')."""
++    lines = ["You rewrite clinical text for a specific patient.", _readability_line(p), _coherence_line(p)]
++    pw = _pathway_line(p)
++    if pw:
++        lines.append(pw)
++    if p.archetype == "balanced":
++        lines.append("Address both the biological and the psychosocial context where the source supports it.")
++    if p.spiritual_first:
++        lines += [f"Cultural/spiritual framing - follow this narrative order: {SPIRITUAL_SEQUENCE}",
++                  "Never contradict the patient's spiritual worldview."]
++    lines.append(SAFETY_FOOTER)
++    return " ".join(lines)
++
++
++def span_style_suffix(p: PatientProfile) -> str:
++    """Short style hint appended to the span-level LLM system prompts. A span rewrite cannot reorder a narrative, so
++    only the readability / no-analogy / respect constraints apply here; ordering is done in the document-level pass."""
++    parts = [_readability_line(p)]
++    if p.archetype == "transitional":
++        parts.append("Avoid analogies and metaphors.")
++    if p.spiritual_first:
++        parts.append("Never contradict the patient's spiritual worldview.")
++    return " ".join(parts)
++
++
++# ======================================================================================================================
++# Evaluation layer: profile-conditioned scorer + coherence report
++# ======================================================================================================================
++def band_score(grade: float, lo: float, hi: float, slack: float = 4.0) -> float:
++    """1.0 inside [lo, hi]; decays linearly to 0 at `slack` grades outside."""
++    d = lo - grade if grade < lo else grade - hi if grade > hi else 0.0
++    return max(0.0, 1.0 - d / slack)
++
++
++class ProfileSuitabilityScorer:
++    """S(y) = (1-w) * base(y) + w * band(FKGL(y)) : the profile only shifts the TARGET band of the readability signal.
++    Works with any base scorer `callable(text)->[0,1]`. Sentence-level (RVS/RTS need a document: see profile_report)."""
++
++    def __init__(self, base, profile: PatientProfile, weight: float = 0.5):
++        self.base, self.profile, self.w = base, profile, weight
++        self.t = profile.targets()
++
++    def __call__(self, text: str) -> float:
++        return float((1 - self.w) * self.base(text) + self.w * band_score(fkgl(text), self.t.grade_lo, self.t.grade_hi))
++
++    def __getattr__(self, name):          # keep base-scorer attributes (features, tg, fit ...) reachable
++        if name in ("base", "profile", "w", "t"):
++            raise AttributeError(name)
++        return getattr(self.base, name)
++
++
++@dataclass
++class ProfileReport:
++    fkgl: float
++    in_band: bool
++    rvs: float
++    rts: float
++    rvs_ok: bool
++    rts_ok: bool
++    needs_revision: bool
++    reasons: list = field(default_factory=list)
++    archetype: str = ""
++    target_band: tuple = (0.0, 0.0)
++
++    def to_dict(self) -> dict:
++        return asdict(self)
++
++
++def profile_report(text: str, p: PatientProfile) -> ProfileReport:
++    """Readability/coherence check against the profile. 'needs_revision' is a GENERATION-layer flag; it is NOT a
++    safety verdict and must never gate output the way FidelityVerifier does."""
++    t, g, v, r = p.targets(), fkgl(text), rvs(text), rts(text)
++    in_band = t.grade_lo - 0.5 <= g <= t.grade_hi + 0.5            # half-grade tolerance
++    rvs_ok = t.rvs_max is None or v <= t.rvs_max
++    rts_ok = t.rts_max is None or r <= t.rts_max
++    why = []
++    if not in_band:
++        why.append(f"FKGL {g:.1f} outside target {t.grade_lo:.0f}-{t.grade_hi:.0f}")
++    if not rvs_ok:
++        why.append(f"RVS {v:.2f} > {t.rvs_max}")
++    if not rts_ok:
++        why.append(f"RTS {r:.2f} > {t.rts_max}")
++    return ProfileReport(g, in_band, v, r, rvs_ok, rts_ok, bool(why), why, p.archetype, (t.grade_lo, t.grade_hi))
+--- /dev/null
++++ b/sipg_rl/coherence.py
+@@ -0,0 +1,56 @@
++"""Textual-coherence metrics for the Health Literacy module: FKGL, RVS and RTS.
++
++OPERATIONAL DEFINITIONS (written without the source PDFs at hand - if your paper defines RVS/RTS differently,
++change ONLY `sentence_grades`, `rvs` and `rts` below; everything else consumes these three functions):
++  * sentence grade g_i  = Flesch-Kincaid grade of sentence i (captures both sentence length and word complexity)
++  * RVS (Readability Variance Score)   = population std-dev of g_1..g_n          (how much complexity varies)
++  * RTS (Readability Transition Score) = mean |g_{i+1} - g_i| over adjacent pairs (how abruptly it changes)
++Both are 0.0 for texts with fewer than 2 sentences. Low RVS/RTS = "steady flow". Pure functions, no model needed.
++"""
++from __future__ import annotations
++import re
++from statistics import pstdev
++from .utils import syllables, WORD_RE
++
++_SENT = re.compile(r"(?<=[.!?])\s+")
++
++
++def split_sentences(text: str) -> list[str]:
++    return [s for s in _SENT.split((text or "").strip()) if s]
++
++
++def _grade(sentence: str) -> float:
++    words = WORD_RE.findall(sentence)
++    n = max(1, len(words))
++    syl = sum(1 if w[0].isdigit() else syllables(w) for w in words)
++    return 0.39 * n + 11.8 * (syl / n) - 15.59
++
++
++def sentence_grades(text: str) -> list[float]:
++    return [_grade(s) for s in split_sentences(text)]
++
++
++def fkgl(text: str) -> float:
++    """Document-level Flesch-Kincaid grade (same formula the Suitability Scorer uses)."""
++    return _grade(text) if (text or "").strip() else 0.0
++
++
++def rvs(text: str) -> float:
++    g = sentence_grades(text)
++    return float(pstdev(g)) if len(g) >= 2 else 0.0
++
++
++def rts(text: str) -> float:
++    g = sentence_grades(text)
++    return float(sum(abs(b - a) for a, b in zip(g, g[1:])) / (len(g) - 1)) if len(g) >= 2 else 0.0
++
++
++def calibrate_coherence(reference_texts, quantile: float = 0.75) -> dict:
++    """Derive steady-flow caps from REFERENCE simplifications (e.g. Med-EASi train 'Simple' side), the same way the
++    S bands are fitted: returns {'rvs_max': q, 'rts_max': q} at the given quantile over multi-sentence texts."""
++    import numpy as np
++    r = [(rvs(t), rts(t)) for t in reference_texts if len(split_sentences(t)) >= 2]
++    if not r:
++        return {}
++    a = np.array(r)
++    return {"rvs_max": float(np.quantile(a[:, 0], quantile)), "rts_max": float(np.quantile(a[:, 1], quantile))}
+--- /dev/null
++++ b/scripts/profile_eval.py
+@@ -0,0 +1,80 @@
++"""Evaluate the Health Literacy module: for each profile preset, simplify the same inputs and report readability
++targets (FKGL in band, RVS, RTS), the verifier pass rate, and a verifier-blindness check.
++
++  python scripts/profile_eval.py                                   # built-in sentences, rules realizer, all presets
++  python scripts/profile_eval.py --jsonl medeasi_test.jsonl --src-field Expert --limit 100 --out eval_profile
++  python scripts/profile_eval.py --presets low_literacy,balanced --llm-model qwen2.5:7b-instruct --revise
++"""
++import argparse, csv, json, os, sys
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++from statistics import mean
++from sipg_rl.pipeline import SIPGRL, default_parts
++from sipg_rl.patient_profile import PRESETS, profile_report, PatientProfile
++from sipg_rl.coherence import calibrate_coherence
++from sipg_rl.verifier import FidelityVerifier
++
++BUILTIN = [
++    "The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain. Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment.",
++    "Patients with hypertensive urgency may experience headache, epistaxis and dyspnea. Administer 25 mg of metoprolol twice daily unless bradycardia develops.",
++    "The patient denies chest pain. Myocardial infarction was excluded by serial troponin measurements, and the electrocardiogram showed no ischemic changes.",
++]
++
++
++def load_texts(a):
++    if not a.jsonl:
++        return BUILTIN
++    rows = [json.loads(l) for l in open(a.jsonl, encoding="utf8") if l.strip()]
++    texts = [r[a.src_field] for r in rows if r.get(a.src_field)]
++    return texts[: a.limit] if a.limit else texts
++
++
++def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--jsonl"); ap.add_argument("--src-field", default="Expert"); ap.add_argument("--limit", type=int, default=0)
++    ap.add_argument("--presets", default=",".join(PRESETS))
++    ap.add_argument("--ckpt", default="runs/v3/policy_seed0.pt")
++    ap.add_argument("--llm-model", default=None); ap.add_argument("--llm-url", default="http://localhost:11434/v1")
++    ap.add_argument("--revise", action="store_true")
++    ap.add_argument("--out", default="eval_profile")
++    a = ap.parse_args()
++
++    parts = None
++    if a.llm_model:
++        from sipg_rl.llm import OpenAICompatLLM
++        from sipg_rl.realize import HybridRealizer, RuleRealizer
++        parts = default_parts(realizer=HybridRealizer(OpenAICompatLLM(a.llm_url, a.llm_model), RuleRealizer()))
++    m = SIPGRL(parts, checkpoint=a.ckpt if os.path.exists(a.ckpt) else None)
++    texts = load_texts(a)
++
++    # verifier blindness: the verifier's public API has no profile parameter and its verdict depends only on (src, out)
++    import inspect
++    sig = inspect.signature(FidelityVerifier.check)
++    assert not any("profile" in n for n in sig.parameters), "verifier must stay profile-blind"
++
++    rows = []
++    for name in [x for x in a.presets.split(",") if x]:
++        prof = PRESETS[name]
++        recs = []
++        for t in texts:
++            res = m.simplify(t, profile=prof, revise=a.revise)
++            rep = res.profile_report
++            ok = FidelityVerifier().check(t, res.text, use_nli=False).ok     # same call regardless of profile
++            recs.append(dict(fkgl=rep["fkgl"], in_band=rep["in_band"], rvs=rep["rvs"], rts=rep["rts"],
++                             needs_revision=rep["needs_revision"], verified=ok,
++                             revised=bool(res.profile_revision and res.profile_revision.get("accepted"))))
++        rows.append(dict(profile=name, archetype=prof.archetype, n=len(recs),
++                         fkgl=round(mean(r["fkgl"] for r in recs), 2), in_band=round(mean(r["in_band"] for r in recs), 3),
++                         rvs=round(mean(r["rvs"] for r in recs), 2), rts=round(mean(r["rts"] for r in recs), 2),
++                         needs_revision=round(mean(r["needs_revision"] for r in recs), 3),
++                         verified=round(mean(r["verified"] for r in recs), 3),
++                         llm_revised=round(mean(r["revised"] for r in recs), 3)))
++        print(rows[-1], flush=True)
++    os.makedirs(a.out, exist_ok=True)
++    with open(os.path.join(a.out, "profile_eval.csv"), "w", newline="") as f:
++        w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
++    json.dump(dict(rows=rows, n_texts=len(texts), llm=a.llm_model, revise=a.revise), open(os.path.join(a.out, "profile_eval.json"), "w"), indent=1)
++    print(f"wrote {a.out}/profile_eval.csv")
++
++
++if __name__ == "__main__":
++    main()
+--- /dev/null
++++ b/tests/test_patient_profile.py
+@@ -0,0 +1,181 @@
++"""Health Literacy / Patient Profile module. Pure-python tests run anywhere; pipeline tests need spaCy + torch."""
++import inspect, os, re
++import pytest
++from sipg_rl import patient_profile as pp
++from sipg_rl.patient_profile import (PatientProfile, PRESETS, build_system_prompt, span_style_suffix, band_score,
++                                     ProfileSuitabilityScorer, profile_report, load_profile, SPIRITUAL_SEQUENCE)
++from sipg_rl.coherence import rvs, rts, fkgl, calibrate_coherence
++from sipg_rl.verifier import FidelityVerifier
++
++STEADY = "Take one pill each day. Drink water with it. Do not skip a day. Call us if you feel sick."
++ERRATIC = ("Take it daily. Notwithstanding gastrointestinal intolerance, antihypertensive pharmacotherapeutic "
++           "adherence necessitates uninterrupted administration throughout hospitalization. Stop. "
++           "Electrocardiographic abnormalities warrant immediate cardiological reevaluation.")
++
++
++def test_schema_clamps_and_validates():
++    p = PatientProfile(core_proficiency=3, digital_preference=-1)
++    assert p.core_proficiency == 1.0 and p.digital_preference == 0.0
++    with pytest.raises(ValueError):
++        PatientProfile(coherence_need="chaotic")
++    assert PatientProfile.from_dict({"core_proficiency": .2, "unknown_key": 1}).core_proficiency == .2
++
++
++@pytest.mark.parametrize("name,arch", [("balanced", "balanced"), ("specialized_digital", "specialized"),
++                                       ("specialized_functional", "specialized"), ("transitional", "transitional")])
++def test_archetypes(name, arch):
++    assert PRESETS[name].archetype == arch
++
++
++def test_targets_follow_proficiency_and_coherence():
++    low, high = PRESETS["low_literacy"], PatientProfile(core_proficiency=0.9)
++    assert (low.targets().grade_lo, low.targets().grade_hi) == (4.0, 6.0)
++    assert high.targets().grade_lo > low.targets().grade_hi - 1e-9
++    assert low.steady_flow and low.targets().rvs_max is not None
++    assert not high.steady_flow and high.targets().rvs_max is None
++    assert PatientProfile(core_proficiency=0.9, coherence_need="steady").steady_flow       # explicit beats auto
++    assert PRESETS["transitional"].steady_flow
++
++
++def test_prompts_encode_each_dimension():
++    assert "4th-6th grade" in build_system_prompt(PRESETS["low_literacy"])
++    assert "uniform" in build_system_prompt(PRESETS["low_literacy"])
++    t = build_system_prompt(PRESETS["transitional"])
++    assert "analogies" in t and "predictable" in t
++    s = build_system_prompt(PRESETS["spiritual_first"])
++    assert SPIRITUAL_SEQUENCE in s and "Never contradict the patient's spiritual worldview" in s
++    assert "step-by-step" in build_system_prompt(PRESETS["specialized_functional"])
++    d = build_system_prompt(PRESETS["specialized_digital"])
++    assert "Do NOT invent links" in d
++    for p in PRESETS.values():                       # every prompt carries the safety footer
++        assert "negations" in build_system_prompt(p)
++    assert "grade" in span_style_suffix(PRESETS["low_literacy"]).lower()
++
++
++def test_rvs_rts_separate_steady_from_erratic():
++    assert rvs("One sentence only.") == 0.0 and rts("One sentence only.") == 0.0
++    assert rvs(STEADY) < rvs(ERRATIC) and rts(STEADY) < rts(ERRATIC)
++    q = calibrate_coherence([STEADY, STEADY + " Rest well."], 0.75)
++    assert q["rvs_max"] >= 0 and q["rts_max"] >= 0
++
++
++def test_band_score_and_scorer_shift():
++    assert band_score(5, 4, 6) == 1.0 and band_score(10, 4, 6) == 0.0 and 0 < band_score(7, 4, 6) < 1
++    base = lambda t: 0.5
++    low, high = ProfileSuitabilityScorer(base, PRESETS["low_literacy"]), ProfileSuitabilityScorer(base, PatientProfile(core_proficiency=0.95))
++    easy = "The patient has high blood pressure and takes one pill every morning."      # FKGL ~5.8: inside 4-6, outside 8-10
++    assert 4 <= fkgl(easy) <= 6
++    assert low(easy) > high(easy)                      # same text, same base score: only the target band differs
++    hard = ERRATIC
++    assert high(hard) >= low(hard)
++
++
++def test_scorer_wrapper_passes_through_base_attributes():
++    class Base:
++        tg = 6.0
++        def __call__(self, t): return 0.5
++        def features(self, t): return {"x": 1}
++    w = ProfileSuitabilityScorer(Base(), PRESETS["balanced"])
++    assert w.tg == 6.0 and w.features("a") == {"x": 1}
++
++
++def test_report_flags_revision_but_is_not_a_safety_verdict():
++    r = profile_report(ERRATIC, PRESETS["low_literacy"])
++    assert r.needs_revision and r.reasons
++    assert not hasattr(r, "ok") and not hasattr(r, "violations")      # no safety semantics on the profile report
++    assert not profile_report(STEADY, PRESETS["low_literacy"]).needs_revision
++
++
++def test_load_profile(tmp_path):
++    assert load_profile(None) is None and load_profile("low_literacy").name == "low_literacy"
++    f = tmp_path / "p.json"; f.write_text('{"core_proficiency": 0.1}')
++    assert load_profile(str(f)).core_proficiency == 0.1
++    assert load_profile('{"spiritual_first": true}').spiritual_first
++    with pytest.raises(ValueError):
++        load_profile("nonsense-preset")
++
++
++# ---- THE INVARIANT: the verifier is profile-blind ---------------------------------------------------------------
++def test_verifier_is_profile_blind():
++    assert not any("profile" in n for n in inspect.signature(FidelityVerifier.check).parameters)
++    assert not any("profile" in n for n in inspect.signature(FidelityVerifier.__init__).parameters)
++    import sipg_rl.verifier as v
++    src = open(v.__file__, encoding="utf8").read()
++    assert "patient_profile" not in src and not re.search(r"\bprofile\b", src, re.I)
++
++
++def test_verdict_depends_only_on_source_and_output():
++    ver = FidelityVerifier(nli=None)
++    src, bad = "Do not take warfarin 5 mg if you feel dizzy.", "Take warfarin 50 mg."
++    first = ver.check(src, bad, use_nli=False)
++    for _ in PRESETS:                                  # same call, any number of profiles in play -> identical verdict
++        again = ver.check(src, bad, use_nli=False)
++        assert (again.ok, again.violations) == (first.ok, first.violations)
++    assert not first.ok
++
++
++# ---- LLM adapter ------------------------------------------------------------------------------------------------
++def test_llm_style_suffix_and_document_rewrite(monkeypatch):
++    from sipg_rl.llm import OpenAICompatLLM
++    seen = []
++    def fake(self, path, payload=None, timeout=None):
++        seen.append(payload["messages"][0]["content"])
++        return {"choices": [{"message": {"content": "plain words"}}]}
++    monkeypatch.setattr(OpenAICompatLLM, "_request", fake)
++    llm = OpenAICompatLLM()
++    llm("p", "dyspnea", "ctx", mode="lexical")
++    assert "Patient style" not in seen[-1]
++    llm.style_suffix = "Use a 4th-6th grade vocabulary."
++    llm("p", "dyspnea", "ctx", mode="lexical")                 # different cache key: the suffix is part of it
++    assert "Patient style: Use a 4th-6th grade vocabulary." in seen[-1] and len(seen) == 2
++    assert llm.rewrite_document("SYS", "Some text.") == "plain words"
++    assert seen[-1] == "SYS"
++
++
++# ---- pipeline (needs spaCy + torch + en_core_web_sm) --------------------------------------------------------------
++@pytest.fixture(scope="module")
++def model():
++    pytest.importorskip("spacy"); pytest.importorskip("torch")
++    from sipg_rl.pipeline import SIPGRL
++    return SIPGRL()
++
++
++TEXT = "The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain."
++
++
++def test_pipeline_returns_report_and_verifier_never_sees_profile(model):
++    calls = []
++    orig = model.parts["verifier"].check
++    model.parts["verifier"].check = lambda *a, **k: (calls.append(k), orig(*a, **k))[1]
++    try:
++        res = model.simplify(TEXT, profile=PRESETS["low_literacy"])
++    finally:
++        model.parts["verifier"].check = orig
++    assert res.profile["name"] == "low_literacy" and res.profile_report["target_band"] == (4.0, 6.0)
++    assert calls and all("profile" not in k for k in calls)
++    assert "10" in res.text and "no" in res.text.lower()          # critical spans survive
++
++
++def test_pipeline_without_profile_is_unchanged(model):
++    a, b = model.simplify(TEXT), model.simplify(TEXT, profile=None)
++    assert a.text == b.text and a.profile is None and a.profile_report is None
++
++
++def test_revision_is_discarded_when_verifier_rejects(model):
++    from sipg_rl.pipeline import SIPGRL, default_parts
++    from sipg_rl.realize import HybridRealizer, RuleRealizer
++
++    class Stub:
++        style_suffix = ""
++        def __init__(self, out): self.out = out
++        def __call__(self, prompt, text, context="", mode=None): return ""
++        def rewrite_document(self, system, text): return self.out
++
++    def run(out):
++        stub = Stub(out)
++        parts = default_parts(nlp=model.parts["nlp"], realizer=HybridRealizer(stub, RuleRealizer()))
++        return SIPGRL(parts).simplify(TEXT, profile=PRESETS["spiritual_first"], revise=True)
++
++    bad = run("Take lisinopril 100 mg. The patient reports chest pain.")          # altered dose, dropped negation
++    assert bad.profile_revision["attempted"] and not bad.profile_revision["accepted"]
++    assert bad.profile_revision["reason"] == "rejected by verifier" and "100" not in bad.text
