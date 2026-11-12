@@ -180,7 +180,6 @@ SPLIT_KINDS = ("RELCL", "CONJ_CL", "ADVCL")
 _CONTENT = lambda t: {w for w in _re.findall(r"[a-z]+", t.lower()) if len(w) > 3}
 
 
-<<<<<<< HEAD
 class HybridRealizer(Realizer):
     """P1.1 / C3 - split responsibilities explicitly.
       * RULES do lexical replacement (deterministic, auditable) for every LEX/NOM/AMOD node that has a candidate, and
@@ -190,23 +189,6 @@ class HybridRealizer(Realizer):
         that must keep >= min_keep of the original content words (re-use words; no paraphrase).
     Unlike `CallableRealizer` it never rewrites whole clauses freely, which is what drove deletions to 72% and SARI below copy.
     `last_via` ('rules'|'llm') and `last_info` are read by the env for the audit trail."""
-=======
-def lexical_guard(before: str, after: str) -> bool:
-    """True iff `after` is an acceptable span-local lexical replacement for `before`."""
-    b, a = before.strip(), after.strip()
-    if not a or a == b:
-        return False
-    if _SENT_PUNCT.search(a) and not _SENT_PUNCT.search(b):      # would introduce a sentence boundary / list
-        return False
-    if len(b.split()) >= 3 and len(a.split()) * 2 < len(b.split()):   # compression: information deleted, not substituted
-        return False
-    if _DIGIT.search(a) and not _DIGIT.search(b):                # no new numbers
-        return False
-    nb, na = len(b.split()), len(a.split())
-    if na > max(3, math.ceil(2.5 * nb) + 1):                       # explanation or restructuring, not a replacement
-        return False
-    return True
->>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
 
     def __init__(self, llm, rules=None, lexical_llm=True, structural_llm=True, max_span_words=4, max_growth=3, min_keep=0.7):
         self.llm, self.rules = llm, rules or RuleRealizer()

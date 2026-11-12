@@ -18,20 +18,11 @@ DYN_DIM = 3
 
 @dataclass
 class EnvConfig:
-<<<<<<< HEAD
     reward_version: str = "s_only"      # preset: "s_only" (default, P0.1) | "v1" (S + 0.5*Sim, ablation) | "v2" | "custom"
     reward_components: tuple = ("S",)   # used verbatim when reward_version == "custom"
     reward_weights: dict = None
     gamma: float = 0.03         # cost per prompt invocation (edit-cost penalty)
     move_cost: float = 0.005    # cost per traversal move
-=======
-    alpha: float = 1.0          # weight of suitability S(y)
-    beta: float = 0.0           # weight of Sim(y,x) in the OBJECTIVE. 0 = S alone (audit item 1): Sim spans ~0.47 and S ~0.12, so any
-                                # beta > 0 lets Sim dominate the gradient. Fidelity is enforced by the verifier gate and, post hoc,
-                                # by an optional Sim floor (SIPGRL(sim_floor=...)); it is still computed and observed, not rewarded.
-    gamma: float = 0.03         # cost per prompt invocation (B1: ~25% of a typical edit gain so parsimony is testable)
-    move_cost: float = 0.0025   # cost per traversal move
->>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
     reject_penalty: float = 0.10
     coverage_bonus: float = 0.0  # OFF: a hand-written bonus hides a misaligned base reward; ablation only
     fail_final_penalty: float = 1.0

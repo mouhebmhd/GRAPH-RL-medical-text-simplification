@@ -54,3 +54,21 @@ def calibrate_coherence(reference_texts, quantile: float = 0.75) -> dict:
         return {}
     a = np.array(r)
     return {"rvs_max": float(np.quantile(a[:, 0], quantile)), "rts_max": float(np.quantile(a[:, 1], quantile))}
+
+
+def text_stats(text: str) -> dict:
+    """Simple size/complexity counts for the dashboard's before/after chart."""
+    words = WORD_RE.findall(text or "")
+    sents = split_sentences(text)
+    long_w = sum(1 for w in words if not w[0].isdigit() and syllables(w) >= 3)
+    return dict(words=len(words), sentences=len(sents), avg_len=round(len(words) / max(1, len(sents)), 1), long_words=long_w)
+
+
+def viz_summary(source: str, output: str) -> dict:
+    """Everything the dashboard's readability charts need: per-sentence FKGL series, RVS/RTS, document FKGL, text stats."""
+    r2 = lambda xs: [round(x, 2) for x in xs]
+    return dict(flow=dict(source=r2(sentence_grades(source)), output=r2(sentence_grades(output)),
+                          rvs=dict(source=round(rvs(source), 2), output=round(rvs(output), 2)),
+                          rts=dict(source=round(rts(source), 2), output=round(rts(output), 2))),
+                fkgl=dict(source=round(fkgl(source), 2), output=round(fkgl(output), 2)),
+                stats=dict(source=text_stats(source), output=text_stats(output)))

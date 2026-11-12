@@ -3,7 +3,7 @@
     python dashboard/server.py [--port 8000] [--ckpt sipg_policy_v3.pt]
 then open http://localhost:8000
 """
-import argparse, json, os, sys, threading, time
+import argparse, dataclasses, json, os, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -11,7 +11,9 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 from sipg_rl.pipeline import SIPGRL, default_parts  # noqa: E402
 from sipg_rl.llm import OpenAICompatLLM  # noqa: E402
-from sipg_rl.patient_profile import PatientProfile, PRESETS  # noqa: E402
+from sipg_rl.coherence import viz_summary  # noqa: E402
+from sipg_rl.patient_profile import (PatientProfile, PRESETS, PROFILE_LABELS, score_all_profiles, describe_profile,  # noqa: E402
+                                     extract_profile_from_text, explain_suitability)
 from sipg_rl.realize import HybridRealizer, RuleRealizer  # noqa: E402
 from sipg_rl import glossary  # noqa: E402
 
@@ -37,6 +39,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "index.html"), "rb") as f:
                 self._send(200, f.read(), "text/html")
+        elif self.path == "/api/profiles":      # preset profiles: structured values + natural-language description (fills the text box)
+            self._send(200, json.dumps({k: dict(label=PROFILE_LABELS.get(k, k), values=p.to_dict(), description=describe_profile(p))
+                                        for k, p in PRESETS.items()}))
         elif self.path == "/api/health":
             llm = STATE["llm"].health() if STATE["llm"] else {"configured": False}
             self._send(200, json.dumps({"ok": True, "checkpoint": STATE["ckpt"], "trained": bool(STATE["ckpt"]), "llm": llm}))
@@ -90,6 +95,17 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     note = f"LLM not available ({h['error'] or 'model missing'}): used rules only."
             profile = PatientProfile.from_dict(body["profile"]) if body.get("profile") else None   # Health Literacy module
+            ptext = (body.get("profile_text") or "").strip()[:1000]
+            extracted, pnote = None, ""
+            if ptext and body.get("extract"):          # the person typed/edited a description of the target patient
+                derived = extract_profile_from_text(STATE["llm"], ptext) if mode == "llm" else None
+                if derived is not None:
+                    profile, extracted = derived, derived.to_dict()
+                elif profile is not None:
+                    profile = dataclasses.replace(profile, notes=ptext)
+                    pnote = "Description kept as context only (the LLM could not turn it into numbers): preset/sliders used."
+                else:
+                    pnote = "A described profile needs the LLM running. Choose a preset or move a slider, or start Ollama."
             revise = bool(body.get("revise", True))       # merged: profile revision is attempted whenever an LLM is in use
             if not text:
                 return self._send(400, json.dumps({"error": "empty input"}))
@@ -101,9 +117,18 @@ class Handler(BaseHTTPRequestHandler):
                     STATE["llm"].reset_stats()
                 res = STATE["models"][mode].simplify(text, apply_all=apply_all, profile=profile, revise=revise)
                 stats = dict(STATE["llm"].stats, model=STATE["llm"].model) if mode == "llm" else None
+                pscores = score_all_profiles(res.text, text, STATE["models"][mode].parts["scorer"], profile,
+                                             llm=STATE["llm"] if mode == "llm" else None)
+            explanation = None
+            if profile is not None:
+                label = next((r["label"] for r in pscores if r["in_use"]), "Your profile")
+                with LOCK:
+                    explanation = explain_suitability(STATE["llm"] if mode == "llm" else None, profile, text, res.text, label)
             out = {"input": text, "output": res.text, "sentences": res.sentences, "rewriter": mode, "apply_all": apply_all, "note": note,
                    "llm_stats": stats, "terms": res.terms, "seconds": round(time.time() - t0, 3),
-                   "profile": res.profile, "profile_report": res.profile_report, "profile_revision": res.profile_revision}
+                   "profile": res.profile, "profile_report": res.profile_report, "profile_revision": res.profile_revision,
+                   "profile_scores": pscores, "profile_explanation": explanation, "viz": viz_summary(text, res.text),
+                   "profile_extracted": extracted, "profile_note": pnote}
             self._send(200, json.dumps(out, default=jdefault))
         except Exception as e:  # surface errors in the UI instead of a dead request
             self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}))

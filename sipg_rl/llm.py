@@ -11,12 +11,6 @@ import json, os, re, time, urllib.request, urllib.error
 
 SYSTEM = (
     "You are an editor who simplifies ONE span of a clinical sentence for a patient with low health literacy. "
-<<<<<<< HEAD
-=======
-    "Replace ONLY the given span with a plain-language equivalent. The replacement must say everything the span says: "
-    "never delete information and never shorten a multi-word span to fewer words; a plain wording that is a little LONGER "
-    "than the original is good. Do NOT restructure the sentence, split it, merge it, or add or remove clauses. "
->>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
     "Rules: keep the exact meaning. Never change, drop or add numbers, doses, units, drug names, negations "
     "(no, not, denies, without) or hedges (may, possible, if, unless). Use short, everyday words. "
     "If the span is already plain or cannot be simplified safely, return it unchanged. "
@@ -44,8 +38,6 @@ def sanitize(raw: str, span: str) -> str:
     if not span.rstrip().endswith("."):
         s = s.rstrip(".")
     if not s or len(s.split()) > 2 * len(span.split()) + 6:   # empty or an explanation, not a span
-        return ""
-    if len(span.split()) >= 3 and len(s.split()) * 2 < len(span.split()):   # compression = information deleted, not substituted
         return ""
     return s
 
@@ -191,4 +183,23 @@ class OpenAICompatLLM:
             self.stats["last_error"] = f"{type(e).__name__}: {e}"
             return ""
         self.cache[key] = out
+        return out
+
+    def chat(self, system: str, user: str, max_tokens: int = 500) -> str:
+        """One plain chat completion (temperature 0, cached). Returns '' on any error (and caches nothing then)."""
+        key = ("chat", system, user)
+        if key in self.cache:
+            self.stats["cache_hits"] += 1
+            return self.cache[key]
+        try:
+            data = self._request("/chat/completions", dict(
+                model=self.model, temperature=0.0, max_tokens=max_tokens, stream=False,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}]))
+            out = (data["choices"][0]["message"]["content"] or "").strip()
+        except Exception as e:
+            self.stats["errors"] += 1
+            self.stats["last_error"] = f"{type(e).__name__}: {e}"
+            return ""
+        if out:
+            self.cache[key] = out
         return out

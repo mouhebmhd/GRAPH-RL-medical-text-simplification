@@ -18,7 +18,6 @@ class VerifierResult:
 
 
 class FidelityVerifier:
-<<<<<<< HEAD
     def __init__(self, critical_terms=None, approved_subs=None, nli=None, nli_threshold=0.5,
                  nli_scope="all", nli_mode="forward", enabled=True):
         """nli_scope: 'all' (default) checks EVERY rewrite; 'critical' only sentences whose source has a number / drug name
@@ -29,28 +28,11 @@ class FidelityVerifier:
         self.nli, self.nli_threshold = nli, nli_threshold
         self.nli_scope, self.nli_mode = nli_scope, nli_mode
         self.enabled = enabled     # Task 3: cfg.verifier.enabled=False -> always pass (ablation only; never ship)
-=======
-    def __init__(self, critical_terms=None, approved_subs=None, nli=None, nli_threshold=0.5, nli_scope="all", nli_mode="entailment", nli_contra_threshold=0.5, legacy_numbers=False):
-        """nli_mode: 'entailment' = reject when P(entail) < nli_threshold (strict; also rejects faithful rewrites that ADD an
-        explanation); 'contradiction' = reject only when P(contradiction) >= nli_contra_threshold (fewer false rejections);
-        'either' = both.  nli_scope: 'all' = entailment-check every sentence the lexical gate accepts (catches drift outside critical
-        spans, e.g. 'excluded' -> 'confirmed'); 'critical' = legacy, only sentences that contain a number or critical term."""
-        self.terms = set(critical_terms or CRITICAL_TERMS)
-        self.subs = approved_subs if approved_subs is not None else APPROVED_SUBS
-        self.nli, self.nli_threshold, self.nli_scope = nli, nli_threshold, nli_scope
-        self.nli_mode, self.nli_contra_threshold = nli_mode, nli_contra_threshold
-        self.legacy_numbers = legacy_numbers      # True = pre-normalisation number check (for before/after measurements only)
->>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
 
     # -- span extraction ---------------------------------------------------------------
     @staticmethod
     def numbers(text):
-<<<<<<< HEAD
         return number_multiset(text)
-=======
-        """Canonical (value, unit) counter: 50mg = 50 mg = 50 milligrams, 1,000 = 1000, 7-day = 7 days, two = 2 ..."""
-        return numnorm.canon_numbers(text)
->>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
 
     @staticmethod
     def negations(text):
@@ -66,7 +48,6 @@ class FidelityVerifier:
         if not self.enabled:
             return VerifierResult(True, [])
         v = []
-<<<<<<< HEAD
         sn, on = self.numbers(src), self.numbers(out)
         # every (number, unit) pair must survive; no new numbers may appear. Unit may be absorbed by
         # an adjacent word split, so compare numbers alone for the "no new" direction.
@@ -77,13 +58,6 @@ class FidelityVerifier:
         for (num, unit) in on:
             if num not in src_nums:
                 v.append(f"hallucinated number: {fmt(num)}")
-=======
-        # Numbers/doses: compared AFTER normalisation (numnorm). A different value, a different unit or a missing number is
-        # still a violation; only notation differences (milligrams/mg, 1,000/1000, two/2, 7-day/7 days ...) are forgiven.
-        lost, new = numnorm.legacy_compare(src, out) if self.legacy_numbers else numnorm.compare(src, out)
-        v += [f"number/dose lost or altered: {x}" for x in lost]
-        v += [f"hallucinated number: {x}" for x in new]
->>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
         if self.negations(out) < self.negations(src):
             v.append("negation cue dropped")
         cw = lambda t, cues: sum(1 for w in re.findall(r"[a-z']+", t.lower()) if w in cues)
@@ -103,19 +77,11 @@ class FidelityVerifier:
             if term in self.terms and term not in st:
                 v.append(f"hallucinated critical term: {term}")
         if use_nli and self.nli is not None and not v and (self.nli_scope == "all" or st or sn):
-<<<<<<< HEAD
             e = self.nli(src, out).get("entailment", 1.0)            # dict with 'entailment' probability
             if self.nli_mode == "bidirectional":
                 e = min(e, self.nli(out, src).get("entailment", 1.0))
             if e < self.nli_threshold:
                 v.append(f"NLI entailment {e:.2f} < {self.nli_threshold} ({self.nli_mode})")
-=======
-            p = self.nli(src, out)  # dict with 'entailment' / 'contradiction' probabilities
-            if self.nli_mode in ("entailment", "either") and p.get("entailment", 1.0) < self.nli_threshold:
-                v.append(f"NLI entailment {p.get('entailment'):.2f} < {self.nli_threshold}")
-            if self.nli_mode in ("contradiction", "either") and p.get("contradiction", 0.0) >= self.nli_contra_threshold:
-                v.append(f"NLI contradiction {p.get('contradiction'):.2f} >= {self.nli_contra_threshold}")
->>>>>>> 1bfb6c5672b8225d0d769783c21f87e9190e7f5b
         return VerifierResult(not v, v)
 
 

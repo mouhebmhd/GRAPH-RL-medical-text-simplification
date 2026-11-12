@@ -79,11 +79,6 @@ details{margin-top:8px} summary{cursor:pointer;color:var(--muted);font-size:13px
 .empty{color:var(--muted);padding:8px 0}
 .violation{color:var(--del);font-size:13px}
 svg{display:block;width:100%;height:auto;max-width:100%}
-.gwrap{overflow-x:auto}
-.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);margin-top:10px}
-.legend i{display:inline-block;width:18px;height:0;border-top:3px solid var(--c);vertical-align:middle;margin-right:5px}
-.legend s{display:inline-block;width:11px;height:11px;border-radius:2px;background:var(--c);vertical-align:-1px;margin-right:5px;text-decoration:none}
-.nodeinfo{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}
 table{border-collapse:collapse;width:100%;font-size:13px}
 th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-weight:500}
@@ -114,7 +109,23 @@ td.num{font-variant-numeric:tabular-nums;text-align:right}
 #tip .ts{margin:8px 0 0;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:6px}
 #tip .ts.ai{color:var(--warn)}
 #tip button.ask{margin-top:4px}
-@media (prefers-reduced-motion:no-preference){ .gnode{transition:opacity .15s} }
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.pcard{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--soft)}
+.pcard.use{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.pcard h3{margin:0;font-size:15px}.pcard .sub{color:var(--muted);font-size:12px}
+.pcard .tags{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0}
+.pcard .tag{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
+.pcard .tag.best{border-color:var(--accent);color:var(--accent)}
+.pcard svg{display:block;width:100%;height:auto;max-height:150px}
+.pbar{position:relative;height:10px;background:var(--line);border-radius:5px;margin:8px 0 4px}
+.pbar i{display:block;height:100%;background:var(--accent);border-radius:5px}
+.pbar b{position:absolute;top:-3px;width:2px;height:16px;background:var(--ink)}
+.pcard .pct{font-size:20px;font-weight:600}
+.checks{list-style:none;padding:0;margin:8px 0 0}.checks li{margin:4px 0}.pcard{cursor:pointer}.pcard:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.vcard{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--soft)}
+.vcard h3{margin:0 0 2px;font-size:15px}.vcard .hint{margin-bottom:6px}.vcard svg{max-height:340px}
+.vcard .cap{font-size:12px;color:var(--muted);margin-top:6px}
 </style>
 </head>
 <body>
@@ -136,9 +147,14 @@ td.num{font-variant-numeric:tabular-nums;text-align:right}
       <span class="hint">Ctrl+Enter also runs it.</span>
     </div>
     <details id="prof" style="margin-top:10px"><summary class="hint">Patient profile (Health Literacy) - optional</summary>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-top:8px">
+        <div style="flex:0 0 230px"><label class="hint" for="pp">Profile (click to fill the description)</label><br>
+          <select id="pp" aria-label="Profile preset" style="width:100%"><option value="">None (no profile)</option><option value="balanced">Balanced</option><option value="low_literacy">Low literacy</option><option value="specialized_digital">Specialized: digital</option><option value="specialized_functional">Specialized: functional</option><option value="transitional">Transitional</option><option value="spiritual_first">Spiritual-first</option></select></div>
+        <div style="flex:1 1 340px"><label class="hint" for="ptext">Target person profile (editable: add or change details)</label>
+          <textarea id="ptext" spellcheck="false" aria-describedby="ptexthint" style="min-height:96px;font:14px/1.5 var(--sans)" placeholder="Describe the patient: health literacy, how they like to receive information, cultural or spiritual context, how they cope with new terms..."></textarea>
+          <div class="hint" id="ptexthint">Picking a profile (here or by clicking a profile card below) fills this box. If you edit or write your own description, the LLM turns it into the profile numbers when you press Simplify; without the LLM it is used as context only.</div></div>
+      </div>
       <div class="row" style="margin-top:8px">
-        <label class="hint" for="pp">Preset</label>
-        <select id="pp" aria-label="Profile preset"><option value="">None (no profile)</option><option value="balanced">Balanced</option><option value="low_literacy">Low literacy</option><option value="specialized_digital">Specialized: digital</option><option value="specialized_functional">Specialized: functional</option><option value="transitional">Transitional</option><option value="spiritual_first">Spiritual-first</option></select>
         <label class="hint" for="pc">Core proficiency <span id="pcv">0.5</span></label>
         <input type="range" id="pc" min="0" max="1" step="0.05" value="0.5" aria-label="Core proficiency">
         <label class="hint" for="pd">Digital preference <span id="pdv">0.5</span></label>
@@ -154,7 +170,7 @@ td.num{font-variant-numeric:tabular-nums;text-align:right}
     <div id="alert" role="alert" style="margin-top:12px"></div>
   </section>
 
-  <p id="intro">Paste a discharge instruction or report sentence and run it. You will get the simplified text as tracked changes, each operation the policy applied, and the sentence graph it walked.</p>
+  <p id="intro">Paste a discharge instruction or report sentence and run it. You will get the simplified text as tracked changes, each operation that was applied, and charts of readability, text changes and profile fit.</p>
 
   <div id="results" hidden>
     <section aria-label="Summary" style="margin-bottom:22px">
@@ -181,19 +197,19 @@ td.num{font-variant-numeric:tabular-nums;text-align:right}
       </section>
     </div>
 
-    <section aria-labelledby="g-h" style="margin-bottom:22px">
-      <h2 id="g-h">Sentence graph and traversal</h2>
-      <div class="hint" style="margin-bottom:8px">Each box is a clause or term found by the parser. Numbered dotted arrows show where the policy moved; a numbered badge marks a prompt it fired. Select a box or an operation for details.</div>
-      <div class="gwrap"><svg id="graph" role="img" aria-label="Sentence graph"></svg></div>
-      <div class="legend" id="legend"></div>
-      <div class="nodeinfo" id="nodeinfo" aria-live="polite">Select a node to see its prompt and what happened there.</div>
+    <section aria-labelledby="vz-h" style="margin-bottom:22px">
+      <h2 id="vz-h">Visual analysis</h2>
+      <div class="vgrid" id="vgrid"></div>
     </section>
 
-    <section aria-labelledby="log-h">
-      <h2 id="log-h">Full traversal log</h2>
-      <details open><summary>Every step the policy took in this sentence</summary>
-        <div style="overflow-x:auto;margin-top:8px"><table id="log"></table></div>
-      </details>
+    <section aria-labelledby="pf-h">
+      <h2 id="pf-h">Health literacy profiles</h2>
+      <div class="hint" style="margin-bottom:10px">Each spider graph draws one profile. The value at each axis is the degree (%) of that dimension: literacy, digital preference, adaptability, topic variance and spiritual anchoring (100% = spiritual-first on). The suitability % is a judgement by the LLM, which is given each profile's description; it is indicative, not a verified metric. The profile only changes the readability target and the prompt; it never relaxes the safety check.</div>
+      <div class="pgrid" id="pgrid"></div>
+    </section>
+    <section aria-labelledby="ex-h">
+      <h2 id="ex-h">Why this text suits the target profile</h2>
+      <div id="expl"></div>
     </section>
   </div>
 </main>
@@ -204,7 +220,6 @@ td.num{font-variant-numeric:tabular-nums;text-align:right}
 const EXAMPLES = [
   ["The hypertensive patient, who takes lisinopril 10 mg BID, reports no chest pain and cephalalgia. Discontinue warfarin 5 mg if dyspnea occurs, because the drug is contraindicated in patients with renal impairment. Myocardial infarction was ruled out; however, the patient reported pruritus that persisted for 3 days.", "All operations together: relative clause, jargon adjective, abbreviation, condition + cause, several jargon terms"],
 ];
-const EDGE_NAMES = {contrast:"contrast",elaboration:"elaboration",condition:"condition",cause:"cause",sequence:"sequence",syn_down:"syntax link",next:"word order"};
 const KINDS = ["ROOT","RELCL","CONJ_CL","ADVCL","CCOMP","ACL","LEX","NOM","AMOD","CPLX"];
 const KIND_NAMES = {ROOT:"main clause",RELCL:"relative clause",CONJ_CL:"joined clause",ADVCL:"subordinate clause",CCOMP:"complement clause",ACL:"participial modifier",LEX:"medical term",NOM:"nominalization",AMOD:"adjective",CPLX:"long word"};
 
@@ -212,7 +227,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const kc = k => `var(--k-${k})`;
 
-let HEALTH = null, DATA = null, SEL = 0, MODE = "red", ACTIVE_OP = null, ACTIVE_NODE = null;
+let HEALTH = null, DATA = null, SEL = 0, MODE = "red";
 
 /* ---------- medical term info boxes ---------- */
 let TERMS = [], TMAP = {}, RX_CI = null, RX_CS = null, SHOWTERMS = true;
@@ -391,12 +406,12 @@ function renderChips(){
   const S = DATA.sentences;
   $('sentchips').style.display = S.length>1 ? 'flex' : 'none';
   $('sentchips').innerHTML = S.map((s,i)=>`<button class="chip" aria-pressed="${i===SEL}" data-i="${i}">Sentence ${i+1}</button>`).join('');
-  $('sentchips').querySelectorAll('button').forEach(b => b.onclick = () => { SEL=+b.dataset.i; ACTIVE_OP=null; ACTIVE_NODE=null; renderSentence(); });
+  $('sentchips').querySelectorAll('button').forEach(b => b.onclick = () => { SEL=+b.dataset.i; renderSentence(); });
 }
 function opCard(o, kind){
   const diffh = diffHTML(o.before, o.after);
   const sign = o.reward>=0 ? 'pos' : 'neg';
-  return `<div class="op" style="--kc:${kc(o.kind)}" data-node="${o.node}" data-step="${o.step}" tabindex="0" role="button" aria-label="${esc(o.label)}">
+  return `<div class="op" style="--kc:${kc(o.kind)}">
     <div class="top"><span class="kind" style="--kc:${kc(o.kind)}">${esc(KIND_NAMES[o.kind]||o.kind)}</span>
       <span class="label">${esc(o.label)}</span>
       ${o.via==='llm'?'<span class="kind" style="--kc:var(--accent)">LLM</span>':''}${o.driver==='sweep'?'<span class="kind" style="--kc:var(--muted)">applied at the end</span>':''}
@@ -415,94 +430,140 @@ function renderOps(){
   if(s.skipped.length) extra += `<details><summary>${s.skipped.length} prompt${s.skipped.length>1?'s':''} fired with no effect</summary><div class="ops" style="margin-top:8px">${s.skipped.map(o=>opCard(o,'skipped')).join('')}</div></details>`;
   if(s.rejected.length) extra += `<details open><summary>${s.rejected.length} edit${s.rejected.length>1?'s':''} blocked by the safety check</summary><div class="ops" style="margin-top:8px">${s.rejected.map(o=>opCard(o,'rejected')).join('')}</div></details>`;
   $('otherops').innerHTML = extra;
-  document.querySelectorAll('.op').forEach(el => {
-    const act = () => { ACTIVE_OP = +el.dataset.step; ACTIVE_NODE = +el.dataset.node; renderSentence(true); };
-    el.onclick = act; el.onkeydown = e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); act(); } };
-    if(ACTIVE_OP===+el.dataset.step) el.setAttribute('aria-current','true');
-  });
 }
 
-/* ---------- graph ---------- */
-function drawGraph(){
-  const s = DATA.sentences[SEL], g = s.graph, N = g.nodes;
-  const order = [...N].sort((a,b)=>a.anchor-b.anchor||a.id-b.id);
-  const maxD = Math.max(...N.map(n=>n.depth));
-  const BW=128, BH=50, GAP=26, PADX=40;
-  const W = Math.max(760, order.length*(BW+GAP)+PADX*2), H = 70 + (maxD+1)*120;
-  const pos = {};
-  order.forEach((n,i)=>{ pos[n.id] = {x: PADX+BW/2 + i*(BW+GAP) + (W-PADX*2-order.length*(BW+GAP))/2, y: 52+n.depth*120}; });
-  const invoked = {};
-  s.steps.forEach(t => { if(t.action==='INVOKE') invoked[t.at] = t; });
-  let svg = `<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker></defs>`;
-  // structural edges
-  for(const e of g.edges){
-    const a=pos[e.source], b=pos[e.target], my=(a.y+b.y)/2;
-    const dash = e.type==='next' ? 'stroke-dasharray="2 5"' : '';
-    const w = e.type==='next' ? 1.5 : 2.4;
-    const sameLevel = a.y===b.y;
-    const d = sameLevel ? `M${a.x} ${a.y+BH/2} Q${(a.x+b.x)/2} ${a.y+BH/2+ (e.type==='next'?34:26)} ${b.x} ${b.y+BH/2}`
-                        : `M${a.x} ${a.y+BH/2} C${a.x} ${my} ${b.x} ${my} ${b.x} ${b.y-BH/2}`;
-    svg += `<path d="${d}" fill="none" stroke="var(--e-${e.type})" stroke-width="${w}" ${dash}><title>${esc(EDGE_NAMES[e.type]||e.type)}</title></path>`;
+/* charts:start */
+const f1 = n => (+n).toFixed(1);
+const svgOpen = (W, H, label) => `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}" font-family="inherit">`;
+const txt = (x, y, t, o={}) => `<text x="${f1(x)}" y="${f1(y)}" font-size="${o.size||11}" fill="${o.fill||'var(--muted)'}" text-anchor="${o.anchor||'start'}"${o.bold?' font-weight="600"':''}>${esc(t)}</text>`;
+
+/* A. per-sentence readability (steady flow) */
+function flowChart(v, band){
+  const S = v.flow.source, O = v.flow.output; if(!S.length && !O.length) return '';
+  const W=520, H=230, L=38, R=14, T=28, B=30, pw=W-L-R, ph=H-T-B;
+  const all=[...S,...O]; if(band) all.push(band[0], band[1]);
+  const y0=Math.min(0, Math.floor(Math.min(...all))), y1=Math.ceil(Math.max(...all))+1, n=Math.max(S.length,O.length,2);
+  const X=i=>L+pw*i/(n-1), Y=g=>T+ph*(1-(g-y0)/(y1-y0)), step=(y1-y0)>14?4:2;
+  let g=''; for(let t=Math.ceil(y0/step)*step; t<=y1; t+=step) g+=`<line x1="${L}" x2="${W-R}" y1="${f1(Y(t))}" y2="${f1(Y(t))}" stroke="var(--line)" stroke-width=".6"/>`+txt(L-6,Y(t)+3.5,t,{anchor:'end'});
+  let xt=''; for(let i=0;i<n;i++) if(n<=12 || i%Math.ceil(n/12)===0) xt+=txt(X(i),H-B+14,i+1,{anchor:'middle'});
+  const bandRect = band ? `<rect x="${L}" y="${f1(Y(band[1]))}" width="${pw}" height="${f1(Y(band[0])-Y(band[1]))}" fill="var(--accent)" fill-opacity=".14"/>`+txt(W-R-4,Y(band[0])+12,'target band '+band[0]+'-'+band[1],{anchor:'end',fill:'var(--accent)'}) : '';
+  const series=(a,col,dash)=> a.length ? `<polyline points="${a.map((q,i)=>f1(X(i))+','+f1(Y(q))).join(' ')}" fill="none" stroke="${col}" stroke-width="2"${dash?' stroke-dasharray="5 4"':''}/>`+a.map((q,i)=>`<circle cx="${f1(X(i))}" cy="${f1(Y(q))}" r="3.2" fill="${col}"/>`).join('') : '';
+  const lab=`Sentence readability. Original ${S.map(f1).join(', ')}. Simplified ${O.map(f1).join(', ')}.`;
+  return svgOpen(W,H,lab)+g+bandRect+series(S,'var(--muted)',true)+series(O,'var(--accent)',false)+xt
+    +txt(L,14,'Original ('+S.length+' sentence'+(S.length===1?'':'s')+')',{fill:'var(--muted)',bold:true})+txt(L+170,14,'Simplified ('+O.length+')',{fill:'var(--accent)',bold:true})
+    +txt(W/2,H-4,'sentence number',{anchor:'middle'})+txt(10,T+ph/2,'grade',{anchor:'middle'}).replace('<text ','<text transform="rotate(-90 10 '+f1(T+ph/2)+')" ')+'</svg>';
+}
+
+/* B. where the text lands against every profile's target reading band */
+function bandChart(rows, fk){
+  if(!rows.length) return '';
+  const W=520, L=150, R=16, T=34, rh=26, H=T+rows.length*rh+24, pw=W-L-R, xmax=Math.max(16, Math.ceil(Math.max(fk.source, fk.output))+1), X=g=>L+pw*g/xmax;
+  let g=''; for(let t=0;t<=xmax;t+=2) g+=`<line x1="${f1(X(t))}" x2="${f1(X(t))}" y1="${T-4}" y2="${T+rows.length*rh}" stroke="var(--line)" stroke-width=".6"/>`+txt(X(t),T+rows.length*rh+14,t,{anchor:'middle'});
+  const body=rows.map((r,i)=>{ const y=T+i*rh; return txt(L-8,y+rh/2+3,r.label,{anchor:'end',fill:r.in_use?'var(--ink)':'var(--muted)',bold:r.in_use})
+    +`<rect x="${f1(X(r.target_band[0]))}" y="${y+5}" width="${f1(X(r.target_band[1])-X(r.target_band[0]))}" height="${rh-10}" rx="3" fill="var(--accent)" fill-opacity=".3" stroke="var(--accent)" stroke-width="${r.in_use?2:1}"/>`
+    +`<circle cx="${f1(X(r.ideal_grade))}" cy="${y+rh/2}" r="3.8" fill="var(--panel)" stroke="var(--accent)" stroke-width="1.6"/>`; }).join('');
+  const vline=(g0,col,dash,label,dy)=>`<line x1="${f1(X(g0))}" x2="${f1(X(g0))}" y1="${T-4}" y2="${T+rows.length*rh}" stroke="${col}" stroke-width="2"${dash?' stroke-dasharray="5 4"':''}/>`+txt(X(g0),dy,label,{anchor:X(g0)>W-70?'end':X(g0)<L+40?'start':'middle',fill:col,bold:true});
+  const lab=`Reading grade of the original (${f1(fk.source)}) and simplified text (${f1(fk.output)}) against each profile's target band: `+rows.map(r=>`${r.label} ${r.target_band[0]} to ${r.target_band[1]}`).join('; ');
+  return svgOpen(W,H,lab)+g+body+vline(fk.source,'var(--del)',true,'original '+f1(fk.source),12)+vline(fk.output,'var(--ink)',false,'simplified '+f1(fk.output),24)+'</svg>';
+}
+
+/* C. before / after text statistics */
+function statsChart(st){
+  const M=[['avg_len','Average sentence length (words)'],['sentences','Number of sentences'],['long_words','Long words (3+ syllables)'],['words','Total words']];
+  const W=520, L=10, bw=330, rh=54, H=M.length*rh+8;
+  const body=M.map(([k,name],i)=>{ const a=st.source[k], b=st.output[k], mx=Math.max(a,b,1), y=i*rh+4;
+    return txt(L,y+11,name,{fill:'var(--ink)'})
+      +`<rect x="${L}" y="${y+17}" width="${f1(bw*a/mx)}" height="12" rx="2" fill="var(--muted)" fill-opacity=".55"/>`+txt(L+bw*a/mx+6,y+27,'original '+a)
+      +`<rect x="${L}" y="${y+32}" width="${f1(bw*b/mx)}" height="12" rx="2" fill="var(--accent)"/>`+txt(L+bw*b/mx+6,y+42,'simplified '+b,{fill:'var(--ink)'}); }).join('');
+  const lab='Text statistics, original then simplified: '+M.map(([k,n])=>`${n} ${st.source[k]} to ${st.output[k]}`).join('; ');
+  return svgOpen(W,H,lab)+body+'</svg>';
+}
+
+/* D. operations by type: applied / blocked by the safety check / no effect */
+function opsChart(sentences){
+  const m={}; const add=(arr,key)=>arr.forEach(o=>{ (m[o.kind]=m[o.kind]||{applied:0,blocked:0,noeffect:0})[key]++; });
+  sentences.forEach(s=>{ add(s.operations,'applied'); add(s.rejected,'blocked'); add(s.skipped,'noeffect'); });
+  const ks=Object.keys(m); if(!ks.length) return '';
+  const W=520, L=140, R=40, T=24, rh=26, H=T+ks.length*rh+10, mx=Math.max(...ks.map(k=>m[k].applied+m[k].blocked+m[k].noeffect)), sc=(W-L-R)/mx;
+  const seg=[['applied','var(--accent)','applied'],['blocked','var(--del)','blocked by safety check'],['noeffect','var(--muted)','no effect']];
+  const body=ks.map((k,i)=>{ let x=L; const y=T+i*rh;
+    const bars=seg.map(([key,col])=>{ const w=m[k][key]*sc; const r=w?`<rect x="${f1(x)}" y="${y+4}" width="${f1(w)}" height="${rh-9}" fill="${col}" fill-opacity="${key==='noeffect'?.5:1}"/>`+(w>14?txt(x+w/2,y+rh/2+3.5,m[k][key],{anchor:'middle',fill:key==='noeffect'?'var(--ink)':'var(--panel)',bold:true}):''):''; x+=w; return r; }).join('');
+    return txt(L-8,y+rh/2+3.5,KIND_NAMES[k]||k,{anchor:'end',fill:'var(--ink)'})+bars; }).join('');
+  const lx=[0,82,272], leg=seg.map(([,col,name],i)=>`<rect x="${L+lx[i]}" y="6" width="10" height="10" fill="${col}"/>`+txt(L+lx[i]+14,15,name)).join('');
+  const lab='Operations by type: '+ks.map(k=>`${KIND_NAMES[k]||k} ${m[k].applied} applied, ${m[k].blocked} blocked, ${m[k].noeffect} no effect`).join('; ');
+  return svgOpen(W,H,lab)+leg+body+'</svg>';
+}
+
+/* E. LLM suitability per profile (only when the LLM rated them) */
+function llmChart(rows){
+  const r=rows.filter(x=>x.llm_score!=null).sort((a,b)=>b.llm_score-a.llm_score); if(!r.length) return '';
+  const W=520, L=150, R=44, T=8, rh=26, H=T+r.length*rh+22, pw=W-L-R, X=v=>L+pw*v/100;
+  let g=''; for(let t=0;t<=100;t+=25) g+=`<line x1="${f1(X(t))}" x2="${f1(X(t))}" y1="${T}" y2="${T+r.length*rh}" stroke="var(--line)" stroke-width=".6"/>`+txt(X(t),T+r.length*rh+14,t+'%',{anchor:'middle'});
+  const body=r.map((x,i)=>{ const y=T+i*rh; return txt(L-8,y+rh/2+3.5,x.label,{anchor:'end',fill:x.in_use?'var(--ink)':'var(--muted)',bold:x.in_use})
+    +`<rect x="${L}" y="${y+5}" width="${f1(pw*x.llm_score/100)}" height="${rh-10}" rx="2" fill="var(--accent)"${x.in_use?' stroke="var(--ink)" stroke-width="1.5"':''}/>`+txt(X(x.llm_score)+5,y+rh/2+3.5,x.llm_score+'%',{fill:'var(--ink)',bold:true}); }).join('');
+  return svgOpen(W,H,'LLM suitability by profile: '+r.map(x=>`${x.label} ${x.llm_score} percent`).join(', '))+g+body+'</svg>';
+}
+
+function renderViz(){
+  const v = DATA.viz, rows = DATA.profile_scores || [], rep = DATA.profile_report;
+  const card=(title, hint, svg, cap)=> `<div class="vcard"><h3>${esc(title)}</h3><div class="hint">${hint}</div>${svg || '<div class="hint">Nothing to chart for this run.</div>'}${cap?`<div class="cap">${cap}</div>`:''}</div>`;
+  const cards=[];
+  if(v){
+    const fl=v.flow;
+    cards.push(card('Readability sentence by sentence','Reading grade (FKGL) of every sentence. Flatter and lower means a steadier, easier flow.',
+      flowChart(v, rep ? rep.target_band : null),
+      `Variation between sentences (RVS): ${fl.rvs.source} to ${fl.rvs.output}. Jumps from one sentence to the next (RTS): ${fl.rts.source} to ${fl.rts.output}. Lower is steadier.`+(rep?'':' Pick a profile to see its target band here.')));
+    cards.push(card('Reading level against each profile','The shaded bar is each profile\'s target grade band and the circle its ideal grade. The lines show where your text sits.',
+      bandChart(rows, v.fkgl)));
+    cards.push(card('What changed in the text','Size and complexity before and after.', statsChart(v.stats)));
   }
-  // nodes
-  for(const n of N){
-    const p = pos[n.id], t = invoked[n.id];
-    const ev = t ? t.event : '';
-    const ring = ev==='edited' ? `stroke="var(--accent)" stroke-width="3"` : ev==='rejected' ? `stroke="var(--del)" stroke-width="3"` :
-                 t ? `stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3"` : `stroke="var(--k-${n.kind})" stroke-width="1.5"`;
-    const sel = ACTIVE_NODE===n.id ? `<rect x="${p.x-BW/2-5}" y="${p.y-BH/2-5}" width="${BW+10}" height="${BH+10}" rx="9" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 3"/>` : '';
-    const txt = n.text.length>17 ? n.text.slice(0,16)+'…' : n.text;
-    svg += `<g class="gnode" data-id="${n.id}" style="cursor:pointer" tabindex="0" role="button" aria-label="${esc(KIND_NAMES[n.kind])}: ${esc(n.text)}">
-      ${sel}
-      <rect x="${p.x-BW/2}" y="${p.y-BH/2}" width="${BW}" height="${BH}" rx="6" ${ring} style="fill:color-mix(in srgb, var(--k-${n.kind}) 16%, var(--panel))"/>
-      <text x="${p.x}" y="${p.y-5}" text-anchor="middle" font-size="11" font-weight="600" style="fill:var(--k-${n.kind})">${esc(KIND_NAMES[n.kind])}</text>
-      <text x="${p.x}" y="${p.y+13}" text-anchor="middle" font-size="13" style="fill:var(--ink);font-family:var(--serif)">${esc(txt)}</text>
-      ${t ? `<circle cx="${p.x+BW/2-2}" cy="${p.y-BH/2+2}" r="11" style="fill:${ev==='edited'?'var(--accent)':ev==='rejected'?'var(--del)':'var(--muted)'}"/><text x="${p.x+BW/2-2}" y="${p.y-BH/2+6}" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--panel)">${t.step}</text>`:''}
-    </g>`;
-  }
-  // traversal moves
-  s.steps.filter(t=>t.action.startsWith('MOVE')).forEach(t => {
-    const a=pos[t.at], b=pos[t.to]; if(!a||!b) return;
-    const dx=b.x-a.x, dy=b.y-a.y, L=Math.hypot(dx,dy)||1, ox=-dy/L*16, oy=dx/L*16;
-    const x1=a.x+dx*.3+ox, y1=a.y+dy*.3+oy, x2=a.x+dx*.7+ox, y2=a.y+dy*.7+oy;
-    svg += `<path d="M${x1} ${y1} L${x2} ${y2}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round" marker-end="url(#ah)" fill="none"/>
-            <text x="${(x1+x2)/2+ox*.5}" y="${(y1+y2)/2+oy*.5+4}" text-anchor="middle" font-size="11" style="fill:var(--accent);font-weight:600">${t.step}</text>`;
+  cards.push(card('Operations by type','What was applied across all sentences, and what the safety check blocked.', opsChart(DATA.sentences)));
+  const lc = llmChart(rows);
+  cards.push(card('Profile suitability (LLM judgement)','Indicative score given by the LLM for each profile. The profile in use has a dark outline.', lc,
+      lc ? '' : 'Needs the LLM running. The scores are the LLM\'s opinion, not a verified measure.'));
+  $('vgrid').innerHTML = cards.join('');
+}
+/* charts:end */
+const PROF_AXES = [['core_proficiency','Literacy'],['digital_preference','Digital'],['adaptability','Adapt.'],['topic_variance','Variance'],['spiritual','Spiritual']];
+function radar(d){
+  const cx=85, cy=72, R=38, n=PROF_AXES.length, f=x=>x.toFixed(1);
+  const pt=(i,v)=>{ const a=-Math.PI/2+i*2*Math.PI/n; return [cx+R*v*Math.cos(a), cy+R*v*Math.sin(a)]; };
+  const ring=v=>PROF_AXES.map((_,i)=>pt(i,v).map(f).join(',')).join(' ');
+  const poly=PROF_AXES.map((a,i)=>pt(i,Math.max(.03,d[a[0]])).map(f).join(',')).join(' ');
+  const spokes=PROF_AXES.map((_,i)=>{ const [x,y]=pt(i,1); return `<line x1="${cx}" y1="${cy}" x2="${f(x)}" y2="${f(y)}" stroke="var(--line)" stroke-width=".6"/>`; }).join('');
+  const dots=PROF_AXES.map((a,i)=>{ const [x,y]=pt(i,Math.max(.03,d[a[0]])); return `<circle cx="${f(x)}" cy="${f(y)}" r="2" fill="var(--accent)"/>`; }).join('');
+  const labels=PROF_AXES.map((a,i)=>{ const [x,y]=pt(i,1.4);
+    return `<text x="${f(x)}" y="${f(y-3)}" text-anchor="middle" font-size="7.5" fill="var(--muted)">${a[1]}</text>`
+         + `<text x="${f(x)}" y="${f(y+6)}" text-anchor="middle" font-size="9" font-weight="600" fill="var(--ink)">${Math.round(d[a[0]]*100)}%</text>`; }).join('');
+  const aria=PROF_AXES.map(a=>`${a[1]} ${Math.round(d[a[0]]*100)} percent`).join(', ');
+  return `<svg viewBox="0 0 170 150" role="img" aria-label="Profile radar: ${aria}">${spokes}
+    <polygon points="${ring(1)}" fill="none" stroke="var(--line)" stroke-width=".8"/><polygon points="${ring(.5)}" fill="none" stroke="var(--line)" stroke-width=".6" stroke-dasharray="2 2"/>
+    <polygon points="${poly}" fill="var(--accent)" fill-opacity=".28" stroke="var(--accent)" stroke-width="1.4"/>${dots}${labels}</svg>`;
+}
+function renderProfiles(){
+  const rows = DATA.profile_scores || [], grid = $('pgrid');
+  if(!rows.length){ grid.innerHTML = '<div class="hint">No profiles returned by the server.</div>'; return; }
+  const best = Math.max(-1, ...rows.map(r => r.llm_score == null ? -1 : r.llm_score));
+  grid.innerHTML = rows.map(r => `<div class="pcard ${r.in_use?'use':''}" data-key="${esc(r.key)}" tabindex="0" role="button" aria-label="Use the ${esc(r.label)} profile">
+    <h3>${esc(r.label)}</h3><div class="sub">${esc(r.archetype)} pattern, ${esc(r.level)} proficiency</div>
+    <div class="tags">${r.in_use?'<span class="tag best">in use</span>':''}${(r.llm_score!=null && r.llm_score===best)?'<span class="tag best">best fit</span>':''}</div>
+    ${radar(r.dims)}
+    <div class="pct">${r.llm_score==null ? 'n/a' : r.llm_score + '%'} <span class="sub">LLM suitability</span></div>
+    ${r.llm_score==null ? '' : `<div class="pbar" role="img" aria-label="${esc(r.label)} LLM suitability ${r.llm_score} percent"><i style="width:${r.llm_score}%"></i></div>`}
+    <div class="sub">${esc(r.llm_reason || 'No LLM rating (needs the LLM rewriter running).')}</div>
+    <details class="sub" style="margin-top:6px"><summary>Profile description sent to the LLM</summary>${esc(r.description)}</details></div>`).join('');
+  grid.querySelectorAll('.pcard').forEach(c => {
+    const pick = ev => { if(ev.target.closest('details')) return;
+      if(fillProfile(c.dataset.key)){ $('prep').textContent = 'Profile loaded into the description box. Edit it if you like, then press Simplify to apply it.'; $('prof').scrollIntoView({behavior:'smooth', block:'center'}); } };
+    c.onclick = pick; c.onkeydown = ev => { if(ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); pick(ev); } };
   });
-  const el = $('graph'); el.setAttribute('viewBox', `0 0 ${W} ${H}`); el.style.minWidth = Math.min(W, 1100)+'px'; el.innerHTML = svg;
-  el.querySelectorAll('.gnode').forEach(gn => {
-    const act = () => { ACTIVE_NODE=+gn.dataset.id; ACTIVE_OP=null; renderSentence(true); };
-    gn.onclick = act; gn.onkeydown = e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); act(); } };
-  });
 }
-function renderLegend(){
-  const used = new Set(DATA.sentences[SEL].graph.nodes.map(n=>n.kind));
-  const ks = KINDS.filter(k=>used.has(k)).map(k=>`<span><s style="--c:var(--k-${k})"></s>${KIND_NAMES[k]}</span>`);
-  const es = [...new Set(DATA.sentences[SEL].graph.edges.map(e=>e.type))].map(t=>`<span><i style="--c:var(--e-${t})"></i>${EDGE_NAMES[t]||t}</span>`);
-  $('legend').innerHTML = ks.join('') + es.join('') +
-    `<span><i style="--c:var(--accent)"></i>edited node</span><span><i style="--c:var(--del)"></i>blocked edit</span>`;
-}
-function renderNodeInfo(){
-  const s = DATA.sentences[SEL];
-  if(ACTIVE_NODE==null){ $('nodeinfo').textContent = 'Select a node to see its prompt and what happened there.'; return; }
-  const n = s.graph.nodes[ACTIVE_NODE];
-  const ctx = n.ctx.length ? `<div>Source context: ${n.ctx.map(esc).join(', ')}</div>` : '';
-  const hist = s.steps.filter(t=>t.at===n.id && t.action==='INVOKE');
-  const outcome = hist.length ? hist.map(t=>`step ${t.step}: ${esc(t.event==='edited'?'edit applied':t.event==='noop'?'prompt had no effect':t.event==='rejected'?'blocked by safety check':t.event)}`).join('; ')
-                              : 'The policy never fired a prompt here.';
-  $('nodeinfo').innerHTML = `<div><span class="kind" style="--kc:${kc(n.kind)}">${esc(KIND_NAMES[n.kind])}</span> <b style="font-family:var(--serif);font-size:17px">“${esc(n.text)}”</b></div>
-    ${n.relation?`<div>Relation to its parent: ${esc(n.relation)}</div>`:''}${ctx}
-    <div>${outcome}</div><p class="prompt">${esc(n.prompt)}</p>`;
-}
-function renderLog(){
-  const s = DATA.sentences[SEL], nm = id => { const n=s.graph.nodes[id]; return n ? `${n.id} ${KIND_NAMES[n.kind]}` : id; };
-  const evName = {edited:'edit applied',noop:'no effect',rejected:'blocked'};
-  $('log').innerHTML = `<tr><th>Step</th><th>At node</th><th>Action</th><th>Outcome</th><th>Chosen by</th><th class="num">Reward</th><th class="num">Running total</th></tr>` +
-    s.steps.map(t => {
-      const act = t.action==='INVOKE' ? 'Fire prompt' : t.action==='STOP' ? 'Stop' : `Move to ${esc(nm(t.to))}`;
-      const out = t.action==='INVOKE' ? (evName[t.event]||t.event) : t.action==='STOP' ? (t.event==='final_reject'?'reverted by final check':'finished') : '';
-      return `<tr><td>${t.step}</td><td>${esc(nm(t.at))}</td><td>${act}</td><td>${esc(out)}</td><td>${t.driver==='sweep'?'end sweep':'policy'}</td>
-        <td class="num ${t.reward>=0?'pos':'neg'}">${t.reward>=0?'+':''}${t.reward.toFixed(3)}</td><td class="num">${t.ret.toFixed(3)}</td></tr>`;
-    }).join('');
+function renderExplanation(){
+  const e = DATA.profile_explanation, box = $('expl');
+  if(!e){ box.innerHTML = '<div class="hint">Choose a profile (or describe the patient) and press Simplify to see why the text suits that person.</div>'; return; }
+  box.innerHTML = `<div class="hint">Target profile: ${esc(e.profile_label)} | explanation written by ${e.source==='llm' ? 'the LLM (indicative)' : 'the measured checks (no LLM available)'}</div>
+    <p style="white-space:pre-wrap;margin:8px 0">${esc(e.text)}</p>
+    <ul class="checks">${e.checks.map(c => `<li><span aria-hidden="true">${c.ok ? '&#10003;' : '&#10007;'}</span> <b>${esc(c.label)}:</b> ${esc(c.detail)} <span class="sub">${c.ok ? 'met' : 'not met'}</span></li>`).join('')}</ul>`;
 }
 function renderApplyAll(){
   const box = $('applyall');
@@ -511,31 +572,46 @@ function renderApplyAll(){
   $('applyallbtn').onclick = () => { $('cov').value = 'all'; run(); };
 }
 function renderSentence(keepScroll){
-  renderChips(); renderOps(); drawGraph(); renderLegend(); renderNodeInfo(); renderLog();
+  renderChips(); renderOps();
 }
 function renderAll(){
   $('results').hidden = false; $('intro').style.display='none';
-  renderFacts(); renderDoc(); renderTermList(); renderSentence(); renderApplyAll();
+  renderFacts(); renderDoc(); renderTermList(); renderSentence(); renderApplyAll(); renderViz(); renderProfiles(); renderExplanation();
 }
 
 
 /* ---------- patient profile (Health Literacy module) ---------- */
 const PRESET_VALUES = {balanced:{c:.6,d:.5,t:0,s:false}, low_literacy:{c:.15,d:.5,t:0,s:false}, specialized_digital:{c:.5,d:.9,t:0,s:false},
   specialized_functional:{c:.5,d:.1,t:0,s:false}, transitional:{c:.4,d:.5,t:.8,s:false}, spiritual_first:{c:.3,d:.5,t:0,s:true}};
+let PROFILES = {}, AUTOFILL = '';
+fetch('/api/profiles').then(r => r.json()).then(j => { PROFILES = j; }).catch(() => {});
+function setSliders(c,d,t,s){ $('pc').value=c; $('pd').value=d; $('pt').value=t; $('psp').checked=!!s;
+  ['pc','pd','pt'].forEach(id => $(id+'v').textContent = $(id).value); }
+function fillProfile(key){            // select a profile: sliders + the editable description box
+  const P = PROFILES[key], v = PRESET_VALUES[key]; if(!P && !v) return false;
+  if(P) setSliders(P.values.core_proficiency, P.values.digital_preference, P.values.topic_variance, P.values.spiritual_first);
+  else setSliders(v.c, v.d, v.t, v.s);
+  $('pp').value = key; $('ptext').value = AUTOFILL = P ? P.description : '';
+  $('prof').open = true; return true;
+}
 function profileBody(){
   if(!$('pp').value && !$('prof').open) return null;
   if(!$('pp').value && +$('pc').value===.5 && +$('pd').value===.5 && +$('pt').value===0 && !$('psp').checked) return null;
   return {core_proficiency:+$('pc').value, digital_preference:+$('pd').value, topic_variance:+$('pt').value, spiritual_first:$('psp').checked};
 }
+function profileText(){ const t = $('ptext').value.trim(); return {profile_text: t, extract: !!t && t !== AUTOFILL.trim()}; }
 ['pc','pd','pt'].forEach(id => $(id).oninput = () => { $(id+'v').textContent = $(id).value; });
-$('pp').onchange = () => { const v = PRESET_VALUES[$('pp').value]; if(!v) return;
-  $('pc').value=v.c; $('pd').value=v.d; $('pt').value=v.t; $('psp').checked=v.s;
-  ['pc','pd','pt'].forEach(id => $(id+'v').textContent = $(id).value); };
+$('pp').onchange = () => { const k = $('pp').value; if(!k){ $('ptext').value = AUTOFILL = ''; return; } fillProfile(k); };
 function renderProfileReport(j){
-  const r = j.profile_report, box = $('prep'); if(!r){ box.textContent=''; return; }
+  const r = j.profile_report, box = $('prep');
+  const e = j.profile_extracted;
+  if(e){ setSliders(e.core_proficiency, e.digital_preference, e.topic_variance, e.spiritual_first); $('pp').value = ''; }   // show what the LLM understood
+  if(!r){ box.textContent = j.profile_note || ''; return; }
   let t = `Profile: ${r.archetype} | FKGL ${r.fkgl.toFixed(1)} (target ${r.target_band[0]}-${r.target_band[1]}) | RVS ${r.rvs.toFixed(2)} | RTS ${r.rts.toFixed(2)} | `
         + (r.needs_revision ? 'flagged for revision (readability only, not a safety verdict): ' + r.reasons.join('; ') : 'meets profile targets');
   const v = j.profile_revision; if(v && v.attempted) t += ` | LLM revision ${v.accepted ? 'accepted' : 'discarded (' + v.reason + ')'}`;
+  if(e) t = 'Description read by the LLM -> literacy ' + Math.round(e.core_proficiency*100) + '%, digital ' + Math.round(e.digital_preference*100) + '%, variance ' + Math.round(e.topic_variance*100) + '%' + (e.spiritual_first ? ', spiritual-first' : '') + ' | ' + t;
+  if(j.profile_note) t = j.profile_note + ' | ' + t;
   box.textContent = t; $('prof').open = true;
 }
 
@@ -546,10 +622,10 @@ async function run(){
   if(!text){ showErr('Enter some clinical text first.'); return; }
   $('go').disabled = true; $('go').textContent = 'Simplifying…';
   try{
-    const r = await fetch('/api/simplify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, rewriter: $('rw').value, apply_all: $('cov').value==='all', profile: profileBody(), revise: $('prv').checked})});
+    const r = await fetch('/api/simplify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text, rewriter: $('rw').value, apply_all: $('cov').value==='all', profile: profileBody(), ...profileText(), revise: $('prv').checked})});
     const j = await r.json();
     if(!r.ok) throw new Error(j.error || r.statusText);
-    DATA = j; SEL = 0; ACTIVE_OP = ACTIVE_NODE = null; buildTerms(j.terms); renderAll(); renderProfileReport(j); if(j.note) $('rwnote').textContent = j.note;
+    DATA = j; SEL = 0; buildTerms(j.terms); renderAll(); renderProfileReport(j); if(j.note) $('rwnote').textContent = j.note;
   }catch(e){
     showErr(`${e.message}. Check that the server is running: python dashboard/server.py`);
   }finally{
